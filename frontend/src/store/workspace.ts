@@ -19,6 +19,7 @@ export interface FiltersState {
   zip: string | null;
   builder: string | null;
   permitType: string | null;
+  useClass: string | null;
   dateFrom: string | null;
   dateTo: string | null;
 }
@@ -39,6 +40,7 @@ const defaultFilters: FiltersState = {
   zip: null,
   builder: null,
   permitType: null,
+  useClass: null,
   dateFrom: null,
   dateTo: null,
 };

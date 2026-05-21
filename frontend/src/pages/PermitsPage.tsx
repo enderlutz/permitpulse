@@ -21,6 +21,7 @@ export function PermitsPage() {
         zip: filters.zip,
         builder: filters.builder,
         permit_type: filters.permitType,
+        use_class: filters.useClass,
         limit,
         offset: page * limit,
       }),
