@@ -12,7 +12,7 @@ dist/
 .vite/
 
 # TS build cache + emitted artifacts of config files
-tsconfig.tsbuildinfo
+*.tsbuildinfo
 vite.config.js
 vite.config.d.ts
 
