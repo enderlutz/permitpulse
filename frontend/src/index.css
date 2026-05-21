@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+  }
+  /* Dark command-center palette */
+  .dark {
+    --background: 220 22% 6%;          /* near-black with cool tint */
+    --foreground: 210 14% 92%;
+    --surface: 220 18% 9%;
+    --surface-raised: 220 16% 12%;
+
+    --card: 220 18% 9%;
+    --card-foreground: 210 14% 92%;
+    --popover: 220 18% 10%;
+    --popover-foreground: 210 14% 92%;
+
+    --primary: 152 73% 49%;            /* emerald */
+    --primary-foreground: 220 22% 6%;
+    --secondary: 220 14% 18%;
+    --secondary-foreground: 210 14% 92%;
+    --muted: 220 14% 14%;
+    --muted-foreground: 215 12% 60%;
+    --accent: 220 14% 18%;
+    --accent-foreground: 210 14% 92%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 14% 96%;
+
+    --border: 220 14% 18%;
+    --input: 220 14% 16%;
+    --ring: 152 73% 49%;
+
+    /* signal palette for charts/heatmaps */
+    --signal-hot: 152 73% 49%;         /* emerald */
+    --signal-warm: 38 92% 50%;         /* amber */
+    --signal-cool: 200 80% 55%;        /* sky */
+    --signal-info: 217 91% 60%;        /* blue */
+    --signal-warn: 38 92% 50%;
+    --signal-danger: 0 72% 51%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1;
+  }
+  html, body, #root {
+    height: 100%;
+  }
+}
+
+@layer components {
+  .num {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+}
+
+/* react-grid-layout overrides */
+.react-grid-item.react-grid-placeholder {
+  background: hsl(var(--primary) / 0.18) !important;
+  border: 1px dashed hsl(var(--primary) / 0.5) !important;
+  border-radius: var(--radius);
+  opacity: 0.6;
+}
+.react-resizable-handle {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 0.4;
+}
+.react-resizable-handle::after {
+  border-color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Leaflet dark tweaks */
+.leaflet-container {
+  background: hsl(var(--background)) !important;
+}
+.leaflet-control-attribution {
+  background: hsl(var(--surface) / 0.85) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  font-size: 10px !important;
+}
+.leaflet-control-zoom a {
+  background: hsl(var(--surface-raised)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
