@@ -8,7 +8,12 @@ import type {
   OpportunityPreset,
 } from "./types";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+// Production fallback so the prod URL always resolves correctly even if the
+// Vercel env var isn't set or a stale HTML caches an old bundle hash. Local
+// dev (running on localhost) still uses the Vite proxy at /api.
+const PROD_FALLBACK = "https://permitpulse-production.up.railway.app/api";
+const onLocalhost = typeof window !== "undefined" && /localhost|127\.0\.0\.1/.test(window.location.hostname);
+const API_BASE = import.meta.env.VITE_API_BASE || (onLocalhost ? "/api" : PROD_FALLBACK);
 
 async function fetchJSON<T>(path: string): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`);
