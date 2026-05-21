@@ -9,7 +9,7 @@ export function Topbar() {
   const setFilter = useWorkspace((s) => s.setFilter);
   const clearFilters = useWorkspace((s) => s.clearFilters);
 
-  const activeCount = [filters.zip, filters.builder, filters.permitType].filter(Boolean).length;
+  const activeCount = [filters.zip, filters.builder, filters.permitType, filters.useClass].filter(Boolean).length;
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface/80 px-4 backdrop-blur">
@@ -30,6 +30,24 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-2">
+        <Select
+          value={filters.useClass ?? "__all__"}
+          onValueChange={(v) => setFilter("useClass", v === "__all__" ? null : v)}
+        >
+          <SelectTrigger className="w-32">
+            <SelectValue placeholder="All uses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All uses</SelectItem>
+            <SelectItem value="warehouse">Warehouse</SelectItem>
+            <SelectItem value="retail">Retail</SelectItem>
+            <SelectItem value="office">Office</SelectItem>
+            <SelectItem value="restaurant">Restaurant</SelectItem>
+            <SelectItem value="apartment">Apartment</SelectItem>
+            <SelectItem value="residential">Residential</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Select value={filters.period} onValueChange={(v) => setFilter("period", v as any)}>
           <SelectTrigger className="w-28">
             <SelectValue />

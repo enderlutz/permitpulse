@@ -29,6 +29,7 @@ def list_permits(
     db: Session = Depends(get_db),
     zip_code: Optional[str] = Query(None, alias="zip"),
     permit_type: Optional[str] = Query(None),
+    use_class: Optional[str] = Query(None, description="warehouse/retail/office/restaurant/apartment/residential"),
     builder: Optional[str] = Query(None),
     period: Optional[str] = Query(None, description="7d/30d/90d/12mo — anchored on latest permit date"),
     date_from: Optional[date] = Query(None),
@@ -45,6 +46,8 @@ def list_permits(
         q = q.filter(Permit.zip_code == zip_code)
     if permit_type:
         q = q.filter(Permit.permit_type == permit_type)
+    if use_class:
+        q = q.filter(Permit.use_class == use_class)
     if builder:
         q = q.filter(Permit.builder.ilike(f"%{builder}%"))
     if period and not date_from:
