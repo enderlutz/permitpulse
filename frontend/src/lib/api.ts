@@ -13,12 +13,28 @@ import type {
 // dev (running on localhost) still uses the Vite proxy at /api.
 const PROD_FALLBACK = "https://permitpulse-production.up.railway.app/api";
 const onLocalhost = typeof window !== "undefined" && /localhost|127\.0\.0\.1/.test(window.location.hostname);
-const API_BASE = import.meta.env.VITE_API_BASE || (onLocalhost ? "/api" : PROD_FALLBACK);
+export const API_BASE = import.meta.env.VITE_API_BASE || (onLocalhost ? "/api" : PROD_FALLBACK);
+
+// Expose at runtime so we can debug "blank UI in prod" cases without devtools.
+if (typeof window !== "undefined") {
+  (window as any).__PERMITPULSE__ = { API_BASE };
+}
 
 async function fetchJSON<T>(path: string): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} – ${path}`);
-  return r.json();
+  const url = `${API_BASE}${path}`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      console.error(`[API] ${r.status} ${r.statusText}`, url);
+      throw new Error(`${r.status} ${r.statusText} – ${path}`);
+    }
+    const data = await r.json();
+    console.debug(`[API] ${r.status}`, path, Array.isArray(data) ? `(${data.length} rows)` : "(obj)");
+    return data;
+  } catch (err) {
+    console.error(`[API] fetch failed`, url, err);
+    throw err;
+  }
 }
 
 export const api = {

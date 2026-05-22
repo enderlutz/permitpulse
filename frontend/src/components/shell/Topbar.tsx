@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useWorkspace } from "@/store/workspace";
+import { API_BASE } from "@/lib/api";
 
 export function Topbar() {
   const filters = useWorkspace((s) => s.filters);
@@ -32,7 +33,12 @@ export function Topbar() {
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
         </span>
-        <span className="text-xs text-muted-foreground">Live · 2025 archive</span>
+        <span className="text-xs text-muted-foreground" title={`API: ${API_BASE}`}>
+          Live · 2025 archive
+        </span>
+        <span className="text-[9px] text-muted-foreground/60 font-mono truncate max-w-[180px]" title={API_BASE}>
+          {API_BASE.replace(/^https?:\/\//, "")}
+        </span>
       </div>
 
       <div className="relative flex flex-1 items-center">
