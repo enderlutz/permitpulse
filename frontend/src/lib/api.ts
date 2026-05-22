@@ -13,7 +13,21 @@ import type {
 // dev (running on localhost) still uses the Vite proxy at /api.
 const PROD_FALLBACK = "https://permitpulse-production.up.railway.app/api";
 const onLocalhost = typeof window !== "undefined" && /localhost|127\.0\.0\.1/.test(window.location.hostname);
-export const API_BASE = import.meta.env.VITE_API_BASE || (onLocalhost ? "/api" : PROD_FALLBACK);
+
+function normalizeApiBase(raw: string | undefined): string {
+  if (!raw) return onLocalhost ? "/api" : PROD_FALLBACK;
+  let v = raw.trim().replace(/\/+$/, "");
+  // Relative paths (start with /) are fine — preserved as-is.
+  if (v.startsWith("/")) return v;
+  // If someone set the env var without a protocol (e.g.
+  // "permitpulse-production.up.railway.app/api"), the browser would treat it
+  // as a relative path and the request would hit the Vercel SPA fallback.
+  // Prepend https:// so it always resolves to an absolute origin.
+  if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+  return v;
+}
+
+export const API_BASE = normalizeApiBase(import.meta.env.VITE_API_BASE);
 
 // Expose at runtime so we can debug "blank UI in prod" cases without devtools.
 if (typeof window !== "undefined") {
