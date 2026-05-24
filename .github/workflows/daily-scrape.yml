@@ -89,6 +89,13 @@ jobs:
               --concurrency "$CONC"
           fi
 
+      - name: Geocode new rows
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -m scripts.geocode_permits --limit 5000
+
       - name: Report row counts
         working-directory: backend
         env:
@@ -102,5 +109,6 @@ jobs:
           n_total = db.query(func.count(Permit.id)).scalar()
           n_2025 = db.query(func.count(Permit.id)).filter(Permit.project_no.like('25%')).scalar()
           n_2026 = db.query(func.count(Permit.id)).filter(Permit.project_no.like('26%')).scalar()
-          print(f'After this run — total: {n_total}, 2025: {n_2025}, 2026: {n_2026}')
+          n_geo = db.query(func.count(Permit.id)).filter(Permit.latitude.isnot(None)).scalar()
+          print(f'After this run — total: {n_total}, 2025: {n_2025}, 2026: {n_2026}, geocoded: {n_geo}')
           "
