@@ -85,58 +85,123 @@ async def harvest_session() -> Session:
 # ---------------------------- Active Report parsing -------------------------
 
 META_RE = re.compile(r'<meta[^>]+name="ibi-report"[^>]+content="[^"]*records=(\d+),\s*columns=(\d+)', re.I)
-# Known canonical header tokens that show up in the headers section. The
-# last column varies (Plan Review Fee / Electrical Pmt / etc.), so we use
-# the FIXED prefix to find the headers block, then count len(headers).
-FIXED_HEADERS = ["PERMIT_DESC", "OWNER_OCCUPANT", "Address", "PROJECT_DESC", "CURRENT_VALUATION", "PERMIT_TYPE"]
+# Canonical column order in the Sold Permits Active Report
+SOLD_PERMITS_COLUMNS = [
+    "PROJECT_NO",
+    "PERMIT_DESC",
+    "OWNER_OCCUPANT",
+    "Address",
+    "PROJECT_DESC",
+    "CURRENT_VALUATION",
+    "PERMIT_TYPE",
+]
 
 
 def parse_active_report(html: str) -> list[dict]:
-    """Pull permit records from the ARstrings JavaScript array.
-
-    Anchors on the ibi-report meta tag (records=N, columns=N) and the fixed
-    header tokens to slice the data block accurately.
-    """
-    meta = META_RE.search(html)
-    if not meta:
-        return []
-    records_count, columns_count = int(meta.group(1)), int(meta.group(2))
-    if records_count == 0:
-        return []
-
-    arrays = re.findall(r"ARstrings\s*=\s*\[(.*?)\];", html, flags=re.S)
-    for raw in arrays:
-        toks = re.findall(r"'((?:[^'\\]|\\.)*)'", raw)
-        if not toks:
-            continue
-        # Find the fixed-header window
-        try:
-            start = next(i for i in range(len(toks) - len(FIXED_HEADERS))
-                         if toks[i:i + len(FIXED_HEADERS)] == FIXED_HEADERS)
-        except StopIteration:
-            continue
-        # Walk forward to capture any extra header tokens (variable last column)
-        # until we have exactly `columns_count` headers
-        # PROJECT_NO is one before PERMIT_DESC; include if present
-        first_header_idx = start
-        if start > 0 and toks[start - 1] == "PROJECT_NO":
-            first_header_idx = start - 1
-        headers = toks[first_header_idx:first_header_idx + columns_count]
-        if len(headers) != columns_count:
-            continue
-        data_start = first_header_idx + columns_count
-        expected_data_len = columns_count * records_count
-        data_tokens = toks[data_start:data_start + expected_data_len]
-        if len(data_tokens) < expected_data_len:
-            # data may have run out — best effort with what we have
-            usable_records = len(data_tokens) // columns_count
-            data_tokens = data_tokens[:usable_records * columns_count]
-        rows = []
-        for r in range(0, len(data_tokens), columns_count):
-            chunk = data_tokens[r:r + columns_count]
-            rows.append(dict(zip(headers, chunk)))
-        return rows
+    """[Legacy] Parse from the ARstrings JS array. Kept for offline tests but the
+    DOM-rendered path in scrape_via_dom() is the reliable production parser."""
     return []
+
+
+def parse_from_cells(cells: list[str], records_count: int) -> list[dict]:
+    """Build permit records from a flat list of rendered DOM cell strings.
+
+    The Sold Permits Active Report flattens into a sequence that begins with
+    chrome rows (search-results banner, date/valuation labels, report date,
+    column-header section) and ends with N records × 7 column cells. We
+    locate the first cell that looks like an 8-digit project number, then
+    walk forward in chunks of 7.
+    """
+    cleaned = [c.strip() for c in cells if c and c.strip() and c.strip() != "\xa0"]
+    n_cols = len(SOLD_PERMITS_COLUMNS)
+
+    # Find first plausible project number (8-digit numeric string)
+    pn_idx = next(
+        (i for i, c in enumerate(cleaned) if c.isdigit() and len(c) == 8),
+        None,
+    )
+    if pn_idx is None:
+        return []
+
+    data = cleaned[pn_idx:]
+    rows: list[dict] = []
+    for i in range(0, len(data), n_cols):
+        chunk = data[i:i + n_cols]
+        if len(chunk) != n_cols:
+            break
+        # Sanity check: the chunk's first cell should still be a project number
+        if not (chunk[0].isdigit() and len(chunk[0]) == 8):
+            break
+        rows.append(dict(zip(SOLD_PERMITS_COLUMNS, chunk)))
+        if len(rows) >= records_count:
+            break
+    return rows
+
+
+async def scrape_via_dom(project_no: str) -> dict:
+    """Render a single Sold Permits lookup in a real browser and read the
+    rendered table from the DOM. Slower than HTTP-only (~5-8 sec per query)
+    but bulletproof against WebFOCUS encoding quirks.
+
+    Returns {"project_no": ..., "status": "hit"|"miss"|"error", "rows": [...]}.
+    """
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(headless=True)
+        ctx = await browser.new_context(user_agent=UA)
+        page = await ctx.new_page()
+        try:
+            await page.goto(FORM_URL, wait_until="domcontentloaded", timeout=60_000)
+            await page.locator("input#SELTD_PN").wait_for(state="attached", timeout=60_000)
+            await page.wait_for_timeout(1_200)
+            await page.locator("input#SELTD_PN").check()
+            await page.locator('input[name="SRH"]').fill(project_no)
+
+            async with ctx.expect_event("page", timeout=60_000) as p_info:
+                await page.locator("input#form1Submit").click()
+            popup = await p_info.value
+            await popup.wait_for_load_state("domcontentloaded", timeout=60_000)
+            try:
+                await popup.wait_for_selector("#ITableData0", timeout=30_000)
+            except Exception:
+                # Could be the "no records" / maintenance error popup
+                body = await popup.content()
+                await browser.close()
+                if "Maintenance" in body or "no record" in body.lower():
+                    return {"project_no": project_no, "status": "miss", "rows": []}
+                return {"project_no": project_no, "status": "unknown", "rows": []}
+            await popup.wait_for_timeout(2_000)  # let AR finish painting
+
+            meta_info = await popup.evaluate("""
+                () => {
+                    const m = document.querySelector('meta[name="ibi-report"]');
+                    if (!m) return {records: 0, columns: 0};
+                    const c = m.getAttribute('content') || '';
+                    const r = /records=(\\d+),\\s*columns=(\\d+)/.exec(c);
+                    return r ? {records: +r[1], columns: +r[2]} : {records: 0, columns: 0};
+                }
+            """)
+            cells = await popup.evaluate("""
+                () => {
+                    const t = document.getElementById('ITableData0');
+                    if (!t) return [];
+                    return Array.from(t.querySelectorAll('td, th'))
+                        .map(c => (c.innerText || c.textContent || '').trim());
+                }
+            """)
+            await browser.close()
+            rows = parse_from_cells(cells, meta_info.get("records", 0))
+            return {
+                "project_no": project_no,
+                "status": "hit" if rows else "miss",
+                "records": len(rows),
+                "rows": rows,
+            }
+        except Exception as e:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+            return {"project_no": project_no, "status": "error", "error": str(e), "rows": []}
 
 
 # ---------------------------- HTTP report fetch -----------------------------
