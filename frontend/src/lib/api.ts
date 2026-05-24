@@ -60,6 +60,12 @@ export const api = {
     detail: (id: number) => fetchJSON<Permit>(`/permits/${id}`),
     types: () => fetchJSON<{ type: string; count: number }[]>(`/permits/types`),
     years: () => fetchJSON<{ year: number; count: number }[]>(`/permits/years`),
+    meta: () => fetchJSON<{
+      latest_ingest: string | null;
+      latest_permit_date: string | null;
+      total: number;
+      geocoded: number;
+    }>(`/permits/meta`),
   },
   analytics: {
     kpis: (period = "30d") => fetchJSON<KpiSummary>(`/analytics/kpis?period=${period}`),

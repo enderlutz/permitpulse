@@ -123,6 +123,21 @@ def permit_years(db: Session = Depends(get_db)):
     return [{"year": int(yr), "count": n} for yr, n in rows if yr is not None]
 
 
+@router.get("/meta")
+def permits_meta(db: Session = Depends(get_db)):
+    """Dataset freshness/coverage signals for the dashboard 'Last updated' badge."""
+    latest_ingest = db.query(func.max(Permit.ingested_at)).scalar()
+    latest_permit = db.query(func.max(Permit.permit_date)).scalar()
+    total = db.query(func.count(Permit.id)).scalar() or 0
+    geocoded = db.query(func.count(Permit.id)).filter(Permit.latitude.isnot(None)).scalar() or 0
+    return {
+        "latest_ingest": latest_ingest.isoformat() if latest_ingest else None,
+        "latest_permit_date": latest_permit.isoformat() if latest_permit else None,
+        "total": total,
+        "geocoded": geocoded,
+    }
+
+
 @router.get("/{permit_id}", response_model=PermitOut)
 def get_permit(permit_id: int, db: Session = Depends(get_db)):
     p = db.get(Permit, permit_id)

@@ -21,6 +21,32 @@ export function Topbar() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: meta } = useQuery({
+    queryKey: ["permit-meta"],
+    queryFn: () => api.permits.meta(),
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+
+  const lastUpdatedLabel = (() => {
+    if (!meta?.latest_ingest) return null;
+    const dt = new Date(meta.latest_ingest);
+    const now = new Date();
+    const diffMs = now.getTime() - dt.getTime();
+    const mins = Math.floor(diffMs / 60_000);
+    if (mins < 1) return "Updated just now";
+    if (mins < 60) return `Updated ${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `Updated ${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days === 1) return "Updated yesterday";
+    return `Updated ${days}d ago`;
+  })();
+
+  const lastUpdatedFull = meta?.latest_ingest
+    ? new Date(meta.latest_ingest).toLocaleString()
+    : "";
+
   const activeYears = filters.years;
   const yearsActive = activeYears != null && activeYears.length > 0;
   const activeCount =
@@ -54,17 +80,20 @@ export function Topbar() {
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface/80 px-4 backdrop-blur">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5" title={lastUpdatedFull || `API: ${API_BASE}`}>
         <span className="relative flex h-2 w-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
         </span>
-        <span className="text-xs text-muted-foreground" title={`API: ${API_BASE}`}>
-          Live · 2025 archive
-        </span>
-        <span className="text-[9px] text-muted-foreground/60 font-mono truncate max-w-[180px]" title={API_BASE}>
-          {API_BASE.replace(/^https?:\/\//, "")}
-        </span>
+        <span className="text-xs font-medium text-foreground/90">Live</span>
+        {lastUpdatedLabel && (
+          <span className="text-xs text-muted-foreground">· {lastUpdatedLabel}</span>
+        )}
+        {meta && (
+          <span className="text-[10px] text-muted-foreground/70">
+            · {formatNum(meta.total)} permits · {formatNum(meta.geocoded)} mapped
+          </span>
+        )}
       </div>
 
       <div className="relative flex flex-1 items-center">
