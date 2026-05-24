@@ -1,26 +1,38 @@
 name: Daily Houston Permit Scrape
 
 # Runs every morning at 10:00 UTC (~5 AM Central Time during DST, 4 AM standard).
-# Picks up new Houston Sold Permits via the incremental --from-latest mode:
-# finds the highest 2026 project_no already in Supabase and scrapes the next
-# 300 candidates from there. Idempotent — ON CONFLICT DO NOTHING means safe to
-# re-run.
+# Default: incremental --from-latest mode picks up new permits since the
+# highest project_no already in Supabase.
 #
-# To enable: in GitHub repo Settings → Secrets and variables → Actions, add a
-# secret named DATABASE_URL with your Supabase Session-pooler connection string
-# (the same one in backend/.env locally).
+# Manual trigger ALSO supports an explicit range (start/end) for backfill
+# sweeps — kick off multiple runs in parallel from the Actions tab to cover
+# wide swaths of project numbers quickly. Each parallel run gets its own
+# GitHub-hosted runner / IP, naturally distributing load.
 #
-# Manual trigger: Actions tab → "Daily Houston Permit Scrape" → "Run workflow".
+# Setup (one time): Settings → Secrets → Actions → add DATABASE_URL with
+# the Supabase Session-pooler connection string.
 
 on:
   schedule:
     - cron: "0 10 * * *"
   workflow_dispatch:
     inputs:
+      start:
+        description: "Start project_no for explicit range (e.g. 26003001). Leave blank for incremental mode."
+        required: false
+        default: ""
+      end:
+        description: "End project_no for explicit range (inclusive). Required if start is set."
+        required: false
+        default: ""
       count:
-        description: "How many candidates to scrape past the highest seen project_no"
+        description: "(Incremental mode only) How many candidates past the highest seen project_no."
         required: false
         default: "300"
+      year_for_latest:
+        description: "(Incremental mode only) Year prefix to scrape from latest."
+        required: false
+        default: "2026"
       concurrency:
         description: "Parallel browsers"
         required: false
@@ -29,7 +41,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 350
 
     steps:
       - name: Check out repo
@@ -52,17 +64,30 @@ jobs:
         working-directory: backend
         run: playwright install --with-deps chromium
 
-      - name: Run incremental scrape
+      - name: Run scrape
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          START="${{ github.event.inputs.start }}"
+          END="${{ github.event.inputs.end }}"
           COUNT="${{ github.event.inputs.count || '300' }}"
+          YEAR="${{ github.event.inputs.year_for_latest || '2026' }}"
           CONC="${{ github.event.inputs.concurrency || '3' }}"
-          python -m scripts.scrape_sold_permits \
-            --from-latest "$COUNT" \
-            --year-for-latest 2026 \
-            --concurrency "$CONC"
+
+          if [ -n "$START" ] && [ -n "$END" ]; then
+            echo "→ Range mode: $START..$END (concurrency $CONC)"
+            python -m scripts.scrape_sold_permits \
+              --start "$START" \
+              --end "$END" \
+              --concurrency "$CONC"
+          else
+            echo "→ Incremental mode: from latest in year $YEAR, count $COUNT"
+            python -m scripts.scrape_sold_permits \
+              --from-latest "$COUNT" \
+              --year-for-latest "$YEAR" \
+              --concurrency "$CONC"
+          fi
 
       - name: Report row counts
         working-directory: backend
@@ -75,6 +100,7 @@ jobs:
           from sqlalchemy import func
           db = SessionLocal()
           n_total = db.query(func.count(Permit.id)).scalar()
+          n_2025 = db.query(func.count(Permit.id)).filter(Permit.project_no.like('25%')).scalar()
           n_2026 = db.query(func.count(Permit.id)).filter(Permit.project_no.like('26%')).scalar()
-          print(f'After this run — total: {n_total}, 2026 rows: {n_2026}')
+          print(f'After this run — total: {n_total}, 2025: {n_2025}, 2026: {n_2026}')
           "
