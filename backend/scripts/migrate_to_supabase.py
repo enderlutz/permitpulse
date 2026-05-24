@@ -8,9 +8,11 @@ characters in your password):
     python -m scripts.migrate_to_supabase 'postgresql://postgres:PWD@db.xxx.supabase.co:5432/postgres'
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -25,12 +27,21 @@ def row_to_dict(row, columns):
 
 
 def main():
+    # Load backend/.env so DATABASE_URL is available without typing the URL again
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
     p = argparse.ArgumentParser()
-    p.add_argument("dest_url", help="Destination Postgres URL (Supabase)")
+    p.add_argument("dest_url", nargs="?", default=None,
+                   help="Destination Postgres URL (Supabase). Falls back to DATABASE_URL env var.")
     p.add_argument("--source", default="sqlite:///./permit_pulse.db", help="Source SQLite URL")
     p.add_argument("--chunk", type=int, default=1000)
     args = p.parse_args()
 
+    if not args.dest_url:
+        args.dest_url = os.getenv("DATABASE_URL")
+    if not args.dest_url:
+        print("ERROR: provide URL as positional arg, or set DATABASE_URL in backend/.env", file=sys.stderr)
+        sys.exit(1)
     if not args.dest_url.startswith("postgresql"):
         print("ERROR: dest_url must start with postgresql://", file=sys.stderr)
         sys.exit(1)
