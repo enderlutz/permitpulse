@@ -276,6 +276,18 @@ async def lookup_project_async(client: httpx.AsyncClient, session: Session, proj
 
 VALUATION_RE = re.compile(r"[\d.]+")
 
+
+def _scrape_date() -> "datetime.date":
+    """Date this scrape was run. The Sold Permits report doesn't expose a
+    per-permit issuance date — just a report-generation date at the top. So
+    we use the current calendar date as a proxy. Imperfect (a permit in the
+    backfill might actually have been issued days/weeks ago) but it gets
+    rows into the year filter and time-series widgets, which is what matters
+    for the demo. Daily cron runs will keep this approximately accurate."""
+    import datetime
+    return datetime.date.today()
+
+
 def to_permit_row(scraped: dict) -> dict:
     """Map an Active Report row to our Permit model columns.
 
@@ -305,6 +317,7 @@ def to_permit_row(scraped: dict) -> dict:
 
     return {
         "project_no": pn,
+        "permit_date": _scrape_date(),
         "permit_type": (scraped.get("PERMIT_DESC") or "").strip() or None,
         "address": address or None,
         "zip_code": zip_code,
