@@ -77,8 +77,10 @@ export const api = {
       fetchJSON<TypeMixRow[]>(`/analytics/type-mix?period=${period}`),
   },
   builders: {
-    leaderboard: (period = "30d", limit = 10) =>
-      fetchJSON<BuilderRow[]>(`/builders/leaderboard?period=${period}&limit=${limit}`),
+    leaderboard: (period = "30d", limit = 10, tiers?: string[]) => {
+      const t = tiers && tiers.length ? `&tiers=${tiers.join(",")}` : "";
+      return fetchJSON<BuilderRow[]>(`/builders/leaderboard?period=${period}&limit=${limit}${t}`);
+    },
     footprint: (builder: string, period = "90d") =>
       fetchJSON<any>(`/builders/${encodeURIComponent(builder)}/footprint?period=${period}`),
   },

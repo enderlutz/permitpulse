@@ -26,6 +26,7 @@ export interface HotspotZip {
 export interface BuilderRow {
   builder: string;
   permit_count: number;
+  tier?: "national" | "local" | "individual" | "unknown" | null;
 }
 
 export interface KpiSummary {

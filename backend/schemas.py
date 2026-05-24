@@ -13,6 +13,8 @@ class PermitOut(BaseModel):
     zip_code: Optional[str]
     comments: Optional[str]
     builder: Optional[str]
+    canonical_builder: Optional[str] = None
+    builder_type: Optional[str] = None
     project_value: Optional[float]
     square_feet: Optional[int]
     use_class: Optional[str]

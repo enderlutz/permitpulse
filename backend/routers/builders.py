@@ -1,16 +1,30 @@
 from datetime import date, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case, or_
 
 from db import get_db
 from models import Permit
 
 router = APIRouter()
 
+VALID_TIERS = {"national", "local", "individual", "unknown"}
+
 
 def _reference_date(db: Session) -> date:
     return db.query(func.max(Permit.permit_date)).scalar() or date.today()
+
+
+def _parse_tiers(tiers: Optional[str]) -> list[str]:
+    """Parse comma-separated ?tiers=national,local,individual into a list.
+    Default: all three real tiers (national + local + individual). Homeowner
+    permits aren't noise — they're a remodel-demand signal and surface
+    subcontracting opportunities for builders."""
+    if not tiers:
+        return ["national", "local", "individual"]
+    parts = [t.strip().lower() for t in tiers.split(",") if t.strip()]
+    return [t for t in parts if t in VALID_TIERS] or ["national", "local", "individual"]
 
 
 @router.get("/leaderboard")
@@ -18,19 +32,43 @@ def leaderboard(
     db: Session = Depends(get_db),
     period: str = Query("30d"),
     limit: int = Query(10),
+    tiers: Optional[str] = Query(None, description="Comma-separated: national,local,individual,unknown. Default: national,local"),
 ):
     days = int(period[:-1]) if period.endswith("d") else (365 if period == "12mo" else 30)
     cutoff = _reference_date(db) - timedelta(days=days)
+    tier_filter = _parse_tiers(tiers)
+
+    # Group by canonical_builder when available (collapses national name variants
+    # like 'D.R. HORTON - TEXAS, LTD' into 'D.R. Horton') and fall back to the
+    # raw builder name for rows that haven't been classified yet.
+    name_col = func.coalesce(Permit.canonical_builder, Permit.builder).label("name")
 
     rows = (
-        db.query(Permit.builder, func.count(Permit.id).label("n"))
-        .filter(Permit.permit_date >= cutoff, Permit.builder.isnot(None))
-        .group_by(Permit.builder)
+        db.query(
+            name_col,
+            func.count(Permit.id).label("n"),
+            func.max(Permit.builder_type).label("tier"),
+        )
+        .filter(
+            Permit.permit_date >= cutoff,
+            Permit.builder.isnot(None),
+            or_(
+                Permit.builder_type.in_(tier_filter),
+                # Rows not yet classified default-in only when 'local' is requested
+                # (the most permissive bucket) so the leaderboard isn't empty on a
+                # fresh DB before classifier runs.
+                Permit.builder_type.is_(None) if "local" in tier_filter else False,
+            ),
+        )
+        .group_by("name")
         .order_by(func.count(Permit.id).desc())
         .limit(limit)
         .all()
     )
-    return [{"builder": b, "permit_count": n} for b, n in rows]
+    return [
+        {"builder": name, "permit_count": n, "tier": tier}
+        for name, n, tier in rows
+    ]
 
 
 @router.get("/{builder}/footprint")

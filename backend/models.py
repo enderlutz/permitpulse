@@ -17,6 +17,8 @@ class Permit(Base):
 
     # enrichment
     builder = Column(String, index=True, nullable=True)
+    canonical_builder = Column(String, index=True, nullable=True)  # dedup'd display name for nationals
+    builder_type = Column(String, index=True, nullable=True)       # national/local/individual/unknown
     project_value = Column(Float, nullable=True)
     square_feet = Column(Integer, nullable=True)
     use_class = Column(String, nullable=True)  # residential/commercial/warehouse/retail
