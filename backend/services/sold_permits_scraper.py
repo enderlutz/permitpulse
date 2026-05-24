@@ -280,12 +280,15 @@ def to_permit_row(scraped: dict) -> dict:
     """Map an Active Report row to our Permit model columns.
 
     Field mapping observed in WebFOCUS output:
-      OWNER_OCCUPANT   → builder        (best proxy without the dedicated buyer field)
-      Address          → address        (often includes ZIP at the end as "1234 MAIN ST 77079")
-      PROJECT_DESC     → comments       (e.g. "SF RESIDENTIAL FOUNDATION ELEVATION 1-1-5-R3-B 2021 IRC")
-      CURRENT_VALUATION → project_value (parsed to float)
-      PERMIT_TYPE      → permit_type
-      PROJECT_NO       → project_no
+      OWNER_OCCUPANT    → builder        (best proxy without a dedicated buyer field)
+      Address           → address        (often includes ZIP at the end as "1234 MAIN ST 77079")
+      PROJECT_DESC      → comments       (e.g. "SF RESIDENTIAL FOUNDATION ELEVATION 1-1-5-R3-B 2021 IRC")
+      CURRENT_VALUATION → project_value  (parsed to float)
+      PERMIT_DESC       → permit_type    (friendly name like "Building Pmt", "Electrical Pmt") — consistent with legacy eReport data
+      PROJECT_NO        → project_no
+      PERMIT_TYPE (code, e.g. "PX", "13") is intentionally dropped for now;
+        it'd live in a separate `permit_code` column after the upcoming
+        schema migration adds composite (project_no, permit_code) uniqueness.
     """
     pn = (scraped.get("PROJECT_NO") or "").strip()
     addr_full = (scraped.get("Address") or "").strip()
@@ -302,7 +305,7 @@ def to_permit_row(scraped: dict) -> dict:
 
     return {
         "project_no": pn,
-        "permit_type": (scraped.get("PERMIT_TYPE") or "").strip() or None,
+        "permit_type": (scraped.get("PERMIT_DESC") or "").strip() or None,
         "address": address or None,
         "zip_code": zip_code,
         "comments": (scraped.get("PROJECT_DESC") or "").strip() or None,
