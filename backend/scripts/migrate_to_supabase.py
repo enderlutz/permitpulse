@@ -42,8 +42,12 @@ def main():
     if not args.dest_url:
         print("ERROR: provide URL as positional arg, or set DATABASE_URL in backend/.env", file=sys.stderr)
         sys.exit(1)
-    if not args.dest_url.startswith("postgresql"):
-        print("ERROR: dest_url must start with postgresql://", file=sys.stderr)
+    # Supabase pooler URLs may use either postgres:// or postgresql:// scheme.
+    # SQLAlchemy requires postgresql://, so silently upgrade if needed.
+    if args.dest_url.startswith("postgres://"):
+        args.dest_url = "postgresql://" + args.dest_url[len("postgres://"):]
+    if not args.dest_url.startswith("postgresql://"):
+        print("ERROR: dest_url must start with postgres:// or postgresql://", file=sys.stderr)
         sys.exit(1)
 
     print(f"Source : {args.source}")
