@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { Search, Bell, Filter, RotateCcw, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Search, Bell, Filter, RotateCcw, X, Calendar, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useWorkspace } from "@/store/workspace";
-import { API_BASE } from "@/lib/api";
+import { api, API_BASE } from "@/lib/api";
+import { cn, formatNum } from "@/lib/utils";
 
 export function Topbar() {
   const filters = useWorkspace((s) => s.filters);
@@ -12,12 +15,21 @@ export function Topbar() {
   const clearFilters = useWorkspace((s) => s.clearFilters);
   const [search, setSearch] = useState("");
 
-  const activeCount = [filters.zip, filters.builder, filters.permitType, filters.useClass].filter(Boolean).length;
+  const { data: years } = useQuery({
+    queryKey: ["permit-years"],
+    queryFn: () => api.permits.years(),
+    staleTime: 5 * 60_000,
+  });
+
+  const activeYears = filters.years;
+  const yearsActive = activeYears != null && activeYears.length > 0;
+  const activeCount =
+    [filters.zip, filters.builder, filters.permitType, filters.useClass].filter(Boolean).length +
+    (yearsActive ? 1 : 0);
 
   const applySearch = () => {
     const v = search.trim();
     if (!v) return;
-    // 5-digit ZIP → ZIP filter; anything else → builder match
     if (/^\d{5}$/.test(v)) {
       setFilter("zip", v);
     } else {
@@ -25,6 +37,20 @@ export function Topbar() {
     }
     setSearch("");
   };
+
+  const toggleYear = (yr: number) => {
+    const current = activeYears ?? [];
+    const next = current.includes(yr) ? current.filter((y) => y !== yr) : [...current, yr];
+    // Empty selection = treat as "all years" (null) so UX matches intuition
+    setFilter("years", next.length === 0 ? null : next);
+  };
+
+  const yearButtonLabel = (() => {
+    if (!yearsActive) return "All years";
+    if (activeYears!.length === 1) return String(activeYears![0]);
+    if (activeYears!.length === 2) return activeYears!.join(" + ");
+    return `${activeYears!.length} years`;
+  })();
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface/80 px-4 backdrop-blur">
@@ -52,7 +78,6 @@ export function Topbar() {
         />
       </div>
 
-      {/* Active filter chips */}
       <div className="flex items-center gap-1.5">
         {filters.zip && (
           <FilterChip label="ZIP" value={filters.zip} onClear={() => setFilter("zip", null)} />
@@ -63,6 +88,69 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Year multi-select */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                "h-7 gap-1.5 px-2",
+                yearsActive && "border-primary/40 bg-primary/10 text-primary"
+              )}
+            >
+              <Calendar className="h-3 w-3" />
+              <span className="text-xs">{yearButtonLabel}</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-56 p-1.5">
+            <div className="mb-1 px-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+              Years in data
+            </div>
+            <div className="space-y-0.5">
+              {years && years.length === 0 && (
+                <div className="px-2 py-1 text-xs text-muted-foreground">No data</div>
+              )}
+              {years?.slice().reverse().map((y) => {
+                const isActive = activeYears?.includes(y.year) ?? false;
+                return (
+                  <button
+                    key={y.year}
+                    onClick={() => toggleYear(y.year)}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded px-2 py-1 text-xs transition-colors hover:bg-secondary/60",
+                      isActive && "bg-secondary"
+                    )}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <div
+                        className={cn(
+                          "flex h-3 w-3 items-center justify-center rounded border",
+                          isActive ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                        )}
+                      >
+                        {isActive && <Check className="h-2.5 w-2.5" />}
+                      </div>
+                      <span className="num font-medium">{y.year}</span>
+                    </div>
+                    <span className="num text-[10px] text-muted-foreground">{formatNum(y.count)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {yearsActive && (
+              <div className="mt-1 border-t border-border pt-1">
+                <button
+                  onClick={() => setFilter("years", null)}
+                  className="w-full rounded px-2 py-1 text-left text-[10px] text-muted-foreground hover:bg-secondary"
+                >
+                  Clear → show all years
+                </button>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+
         <Select
           value={filters.useClass ?? "__all__"}
           onValueChange={(v) => setFilter("useClass", v === "__all__" ? null : v)}

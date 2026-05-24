@@ -59,6 +59,7 @@ export const api = {
       fetchJSON<Permit[]>(`/permits/recent?days=${days}&limit=${limit}`),
     detail: (id: number) => fetchJSON<Permit>(`/permits/${id}`),
     types: () => fetchJSON<{ type: string; count: number }[]>(`/permits/types`),
+    years: () => fetchJSON<{ year: number; count: number }[]>(`/permits/years`),
   },
   analytics: {
     kpis: (period = "30d") => fetchJSON<KpiSummary>(`/analytics/kpis?period=${period}`),

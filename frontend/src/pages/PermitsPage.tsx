@@ -22,6 +22,7 @@ export function PermitsPage() {
         builder: filters.builder,
         permit_type: filters.permitType,
         use_class: filters.useClass,
+        years: filters.years?.join(",") || undefined,
         limit,
         offset: page * limit,
       }),

@@ -32,6 +32,7 @@ def list_permits(
     use_class: Optional[str] = Query(None, description="warehouse/retail/office/restaurant/apartment/residential"),
     builder: Optional[str] = Query(None),
     period: Optional[str] = Query(None, description="7d/30d/90d/12mo — anchored on latest permit date"),
+    years: Optional[str] = Query(None, description="Comma-separated years to include, e.g. 2025,2026"),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     has_geo: bool = Query(False, description="Only permits with lat/lng"),
@@ -50,6 +51,14 @@ def list_permits(
         q = q.filter(Permit.use_class == use_class)
     if builder:
         q = q.filter(Permit.builder.ilike(f"%{builder}%"))
+    if years:
+        try:
+            year_list = [int(y.strip()) for y in years.split(",") if y.strip()]
+        except ValueError:
+            raise HTTPException(400, "years must be comma-separated integers")
+        if year_list:
+            from sqlalchemy import extract
+            q = q.filter(extract("year", Permit.permit_date).in_(year_list))
     if period and not date_from:
         ref = _reference_date(db)
         date_from = ref - timedelta(days=_period_days(period))
@@ -98,6 +107,20 @@ def permit_types(db: Session = Depends(get_db)):
         .all()
     )
     return [{"type": t, "count": n} for t, n in rows]
+
+
+@router.get("/years")
+def permit_years(db: Session = Depends(get_db)):
+    """Permit count per year — drives the year-filter UI."""
+    from sqlalchemy import extract
+    rows = (
+        db.query(extract("year", Permit.permit_date).label("yr"), func.count(Permit.id).label("n"))
+        .filter(Permit.permit_date.isnot(None))
+        .group_by("yr")
+        .order_by("yr")
+        .all()
+    )
+    return [{"year": int(yr), "count": n} for yr, n in rows if yr is not None]
 
 
 @router.get("/{permit_id}", response_model=PermitOut)

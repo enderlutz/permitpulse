@@ -20,6 +20,7 @@ export interface FiltersState {
   builder: string | null;
   permitType: string | null;
   useClass: string | null;
+  years: number[] | null;   // null = include all years
   dateFrom: string | null;
   dateTo: string | null;
 }
@@ -41,6 +42,7 @@ const defaultFilters: FiltersState = {
   builder: null,
   permitType: null,
   useClass: null,
+  years: null,
   dateFrom: null,
   dateTo: null,
 };
