@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import AsyncIterator
 
+from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -41,14 +42,36 @@ def prefix_range_candidates(year: int, prefix_lo: int, prefix_hi: int, max_seq: 
 
 
 def upsert_rows(rows: list[dict]) -> int:
+    """Insert sub-permit rows for one project_no, replacing any LEGACY
+    placeholder row that the migration left behind.
+
+    Pre-migration data has a single LEGACY-coded row per project_no (a
+    fallback so the composite unique constraint could be added without
+    losing data). When we re-scrape that project, we have real per-permit
+    codes, so the LEGACY row should be dropped first to avoid duplication.
+
+    Each call is atomic — delete + insert in one transaction per project.
+    """
     if not rows:
         return 0
     is_sqlite = engine.dialect.name == "sqlite"
+    project_nos = sorted({r["project_no"] for r in rows if r.get("project_no")})
+
     with engine.begin() as conn:
+        if project_nos:
+            del_stmt = text(
+                "DELETE FROM permits "
+                "WHERE permit_code = 'LEGACY' AND project_no IN :pns"
+            ).bindparams(bindparam("pns", expanding=True))
+            conn.execute(del_stmt, {"pns": project_nos})
         if is_sqlite:
-            stmt = sqlite_insert(Permit).values(rows).on_conflict_do_nothing(index_elements=["project_no"])
+            stmt = sqlite_insert(Permit).values(rows).on_conflict_do_nothing(
+                index_elements=["project_no", "permit_code"]
+            )
         else:
-            stmt = pg_insert(Permit).values(rows).on_conflict_do_nothing(index_elements=["project_no"])
+            stmt = pg_insert(Permit).values(rows).on_conflict_do_nothing(
+                index_elements=["project_no", "permit_code"]
+            )
         conn.execute(stmt)
     return len(rows)
 

@@ -297,10 +297,8 @@ def to_permit_row(scraped: dict) -> dict:
       PROJECT_DESC      → comments       (e.g. "SF RESIDENTIAL FOUNDATION ELEVATION 1-1-5-R3-B 2021 IRC")
       CURRENT_VALUATION → project_value  (parsed to float)
       PERMIT_DESC       → permit_type    (friendly name like "Building Pmt", "Electrical Pmt") — consistent with legacy eReport data
+      PERMIT_TYPE       → permit_code    (short code like "PX", "13", "BPLB"; co-key with project_no for sub-permit uniqueness)
       PROJECT_NO        → project_no
-      PERMIT_TYPE (code, e.g. "PX", "13") is intentionally dropped for now;
-        it'd live in a separate `permit_code` column after the upcoming
-        schema migration adds composite (project_no, permit_code) uniqueness.
     """
     pn = (scraped.get("PROJECT_NO") or "").strip()
     addr_full = (scraped.get("Address") or "").strip()
@@ -315,8 +313,14 @@ def to_permit_row(scraped: dict) -> dict:
     except ValueError:
         project_value = None
 
+    # Always provide a non-empty permit_code so the composite unique constraint
+    # actually deduplicates. Fall back to 'UNK' if the cell was blank — better
+    # than NULL (which Postgres treats as distinct from other NULLs).
+    permit_code = (scraped.get("PERMIT_TYPE") or "").strip() or "UNK"
+
     return {
         "project_no": pn,
+        "permit_code": permit_code,
         "permit_date": _scrape_date(),
         "permit_type": (scraped.get("PERMIT_DESC") or "").strip() or None,
         "address": address or None,

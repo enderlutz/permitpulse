@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Index, Text
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Index, Text, UniqueConstraint
 from sqlalchemy.sql import func
 from db import Base
 
@@ -7,7 +7,8 @@ class Permit(Base):
     __tablename__ = "permits"
 
     id = Column(Integer, primary_key=True, index=True)
-    project_no = Column(String, unique=True, index=True)
+    project_no = Column(String, index=True)
+    permit_code = Column(String, index=True, nullable=False, server_default="LEGACY")
     permit_date = Column(Date, index=True)
     permit_type = Column(String, index=True)
     address = Column(String, index=True)
@@ -25,6 +26,7 @@ class Permit(Base):
     ingested_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
+        UniqueConstraint("project_no", "permit_code", name="uq_project_permit"),
         Index("ix_permit_lat_lng", "latitude", "longitude"),
         Index("ix_permit_zip_date", "zip_code", "permit_date"),
     )

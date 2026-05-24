@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class PermitOut(BaseModel):
     id: int
     project_no: str
+    permit_code: Optional[str] = None
     permit_date: Optional[date]
     permit_type: Optional[str]
     address: Optional[str]
