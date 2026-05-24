@@ -76,6 +76,9 @@ def upsert_rows(rows: list[dict]) -> int:
     return len(rows)
 
 
+QUERY_TIMEOUT_SECS = 90  # Hard ceiling per query — kills hung Playwright instances
+
+
 async def worker(name: str, queue: asyncio.Queue, results: dict):
     while True:
         pn = await queue.get()
@@ -83,7 +86,15 @@ async def worker(name: str, queue: asyncio.Queue, results: dict):
             queue.task_done()
             return
         try:
-            r = await scrape_via_dom(pn)
+            # Hard timeout per query so a single hung Playwright doesn't
+            # silently block the worker forever (this happened on 2026-05-24
+            # — 6 jobs sat idle for an hour with no insertions).
+            try:
+                r = await asyncio.wait_for(scrape_via_dom(pn), timeout=QUERY_TIMEOUT_SECS)
+            except asyncio.TimeoutError:
+                results["errors"] += 1
+                print(f"  [{name}] ✗ {pn} hard-timeout after {QUERY_TIMEOUT_SECS}s — skipping")
+                continue
             results["queried"] += 1
             if r["status"] == "hit" and r.get("rows"):
                 normalized = [to_permit_row(row) for row in r["rows"]]
