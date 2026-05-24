@@ -1,0 +1,80 @@
+name: Daily Houston Permit Scrape
+
+# Runs every morning at 10:00 UTC (~5 AM Central Time during DST, 4 AM standard).
+# Picks up new Houston Sold Permits via the incremental --from-latest mode:
+# finds the highest 2026 project_no already in Supabase and scrapes the next
+# 300 candidates from there. Idempotent — ON CONFLICT DO NOTHING means safe to
+# re-run.
+#
+# To enable: in GitHub repo Settings → Secrets and variables → Actions, add a
+# secret named DATABASE_URL with your Supabase Session-pooler connection string
+# (the same one in backend/.env locally).
+#
+# Manual trigger: Actions tab → "Daily Houston Permit Scrape" → "Run workflow".
+
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "How many candidates to scrape past the highest seen project_no"
+        required: false
+        default: "300"
+      concurrency:
+        description: "Parallel browsers"
+        required: false
+        default: "3"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        working-directory: backend
+        run: playwright install --with-deps chromium
+
+      - name: Run incremental scrape
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          COUNT="${{ github.event.inputs.count || '300' }}"
+          CONC="${{ github.event.inputs.concurrency || '3' }}"
+          python -m scripts.scrape_sold_permits \
+            --from-latest "$COUNT" \
+            --year-for-latest 2026 \
+            --concurrency "$CONC"
+
+      - name: Report row counts
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -c "
+          from db import SessionLocal
+          from models import Permit
+          from sqlalchemy import func
+          db = SessionLocal()
+          n_total = db.query(func.count(Permit.id)).scalar()
+          n_2026 = db.query(func.count(Permit.id)).filter(Permit.project_no.like('26%')).scalar()
+          print(f'After this run — total: {n_total}, 2026 rows: {n_2026}')
+          "

@@ -84,6 +84,26 @@ async def worker(name: str, queue: asyncio.Queue, results: dict):
             queue.task_done()
 
 
+def latest_seen_project_no(year: int) -> int | None:
+    """Highest project_no currently in the DB that starts with this year's
+    2-digit prefix. Returns None if no rows for the year."""
+    from sqlalchemy import func
+    from sqlalchemy.orm import Session
+    yy = f"{year % 100:02d}"
+    with Session(engine) as s:
+        m = (
+            s.query(func.max(Permit.project_no))
+            .filter(Permit.project_no.like(f"{yy}%"))
+            .scalar()
+        )
+        if m is None:
+            return None
+        try:
+            return int(m)
+        except (ValueError, TypeError):
+            return None
+
+
 async def main():
     p = argparse.ArgumentParser()
     p.add_argument("--start", type=int, help="First project number to query (e.g. 26001001)")
@@ -91,6 +111,11 @@ async def main():
     p.add_argument("--year", type=int, help="Year (last 2 digits used) for prefix-range mode")
     p.add_argument("--prefix-range", nargs=2, type=int, metavar=("LO", "HI"),
                    help="Prefix range to sweep (e.g. 1 30 → 26001xxx-26030xxx)")
+    p.add_argument("--from-latest", type=int, metavar="N",
+                   help="Incremental mode: scrape the next N candidates after the highest "
+                        "project_no already in the DB for the current year. Designed for the daily cron.")
+    p.add_argument("--year-for-latest", type=int, default=2026,
+                   help="Year prefix to use with --from-latest (default 2026)")
     p.add_argument("--max-seq", type=int, default=999,
                    help="Max sequence number to try per prefix (default 999)")
     p.add_argument("--concurrency", type=int, default=3, help="Parallel browsers (default 3)")
@@ -102,8 +127,17 @@ async def main():
         cands = candidates(args.start, args.end)
     elif args.year and args.prefix_range:
         cands = prefix_range_candidates(args.year, args.prefix_range[0], args.prefix_range[1], args.max_seq)
+    elif args.from_latest:
+        latest = latest_seen_project_no(args.year_for_latest)
+        if latest is None:
+            print(f"No rows yet for year {args.year_for_latest} — start with --start/--end.")
+            return
+        start = latest + 1
+        end = start + args.from_latest - 1
+        print(f"Incremental mode: latest seen = {latest}, scraping {start}..{end}")
+        cands = candidates(start, end)
     else:
-        p.error("provide either --start/--end or --year + --prefix-range")
+        p.error("provide --start/--end, --year + --prefix-range, or --from-latest N")
 
     print(f"Sweeping {len(cands)} candidates with concurrency={args.concurrency}")
     print(f"First: {cands[0]}   Last: {cands[-1]}")
