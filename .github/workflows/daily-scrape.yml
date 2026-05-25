@@ -90,11 +90,15 @@ jobs:
           fi
 
       - name: Geocode new rows
+        # Census Geocoder is notoriously flaky under load — silent throttling
+        # is the norm, not the exception. Don't fail the whole workflow if
+        # it has a bad day; missed rows are picked up by the next run.
+        continue-on-error: true
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python -m scripts.geocode_permits --limit 5000
+          python -m scripts.geocode_permits --limit 5000 --batch-size 100 --delay 2
 
       - name: Report row counts
         working-directory: backend
