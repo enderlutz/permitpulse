@@ -139,69 +139,119 @@ def parse_from_cells(cells: list[str], records_count: int) -> list[dict]:
 
 
 async def scrape_via_dom(project_no: str) -> dict:
-    """Render a single Sold Permits lookup in a real browser and read the
-    rendered table from the DOM. Slower than HTTP-only (~5-8 sec per query)
-    but bulletproof against WebFOCUS encoding quirks.
+    """Lookup one project number and return parsed sub-permit rows.
+
+    Architecture (HTTP+local-render hybrid):
+      1. httpx POST → WFServlet returns the full Active Report HTML directly
+         (~1.3 MB). No form interaction, no popup window, no auth token.
+      2. Save HTML to a temp file and open it in Playwright via file://.
+         The page's embedded JS renders the data into the ITableData0 table.
+      3. Read cell text from the DOM and reuse parse_from_cells().
+
+    This replaced the old form-click-and-wait-for-popup flow on 2026-05-24
+    after the city site stopped opening popups in headless browsers (still
+    works fine in headed Chrome — likely a popup-blocker heuristic).
+    Bonus: ~3-5× faster per query than the popup flow because there's no
+    network navigation in the Playwright step.
 
     Returns {"project_no": ..., "status": "hit"|"miss"|"error", "rows": [...]}.
     """
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
-        ctx = await browser.new_context(user_agent=UA)
-        page = await ctx.new_page()
-        try:
-            await page.goto(FORM_URL, wait_until="domcontentloaded", timeout=60_000)
-            await page.locator("input#SELTD_PN").wait_for(state="attached", timeout=60_000)
-            await page.wait_for_timeout(1_200)
-            await page.locator("input#SELTD_PN").check()
-            await page.locator('input[name="SRH"]').fill(project_no)
+    import tempfile
+    import os
 
-            async with ctx.expect_event("page", timeout=60_000) as p_info:
-                await page.locator("input#form1Submit").click()
-            popup = await p_info.value
-            await popup.wait_for_load_state("domcontentloaded", timeout=60_000)
+    tmp_path = None
+    try:
+        # ---- Step 1: HTTP POST for the raw report ----
+        body = {
+            "IBIAPP_app": "soldpermits",
+            "IBIF_ex": "online_per_se",
+            "IBIC_server": "EDASERVE",
+            "VALMN": " ",
+            "VALMX": " ",
+            "SRH": project_no,
+            "SELTD": "PN",
+            "PTYPE": "11",
+            "ERRTITLE": " ",
+            "IBIMR_Random": str(random()),
+            "IBIMR_sub_action": "MR_USER_FEX",
+        }
+        headers = {
+            "User-Agent": UA,
+            "Referer": FORM_URL,
+            "Origin": "https://cohtora.houstontx.gov",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            # GET the form first to set the NSC_ESNS cookie (some queries fail without it).
+            await client.get(FORM_URL, headers={"User-Agent": UA})
+            r = await client.post(REPORT_URL, data=body, headers=headers)
+        html = r.text
+
+        # Quick early exits without spinning up Chromium
+        if not html or len(html) < 500:
+            return {"project_no": project_no, "status": "error",
+                    "error": f"short response: {len(html)}B", "rows": []}
+        if "Maintenance" in html:
+            return {"project_no": project_no, "status": "miss", "rows": []}
+        if "Active Report" not in html:
+            return {"project_no": project_no, "status": "miss", "rows": []}
+
+        # ---- Step 2: Render locally via Playwright (file://) ----
+        # Use a uniquely-named temp file per call so concurrent workers don't collide
+        fd, tmp_path = tempfile.mkstemp(suffix=".html", prefix=f"sp_{project_no}_")
+        with os.fdopen(fd, "w") as f:
+            f.write(html)
+
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            ctx = await browser.new_context()
+            page = await ctx.new_page()
             try:
-                await popup.wait_for_selector("#ITableData0", timeout=30_000)
-            except Exception:
-                # Could be the "no records" / maintenance error popup
-                body = await popup.content()
-                await browser.close()
-                if "Maintenance" in body or "no record" in body.lower():
+                await page.goto(f"file://{tmp_path}",
+                                wait_until="domcontentloaded", timeout=20_000)
+                try:
+                    await page.wait_for_selector("#ITableData0", timeout=15_000)
+                except Exception:
+                    await browser.close()
                     return {"project_no": project_no, "status": "miss", "rows": []}
-                return {"project_no": project_no, "status": "unknown", "rows": []}
-            await popup.wait_for_timeout(2_000)  # let AR finish painting
+                await page.wait_for_timeout(800)  # let AR finish painting
 
-            meta_info = await popup.evaluate("""
-                () => {
-                    const m = document.querySelector('meta[name="ibi-report"]');
-                    if (!m) return {records: 0, columns: 0};
-                    const c = m.getAttribute('content') || '';
-                    const r = /records=(\\d+),\\s*columns=(\\d+)/.exec(c);
-                    return r ? {records: +r[1], columns: +r[2]} : {records: 0, columns: 0};
-                }
-            """)
-            cells = await popup.evaluate("""
-                () => {
-                    const t = document.getElementById('ITableData0');
-                    if (!t) return [];
-                    return Array.from(t.querySelectorAll('td, th'))
-                        .map(c => (c.innerText || c.textContent || '').trim());
-                }
-            """)
-            await browser.close()
-            rows = parse_from_cells(cells, meta_info.get("records", 0))
-            return {
-                "project_no": project_no,
-                "status": "hit" if rows else "miss",
-                "records": len(rows),
-                "rows": rows,
-            }
-        except Exception as e:
-            try:
+                meta_info = await page.evaluate("""
+                    () => {
+                        const m = document.querySelector('meta[name="ibi-report"]');
+                        if (!m) return {records: 0, columns: 0};
+                        const c = m.getAttribute('content') || '';
+                        const r = /records=(\\d+),\\s*columns=(\\d+)/.exec(c);
+                        return r ? {records: +r[1], columns: +r[2]} : {records: 0, columns: 0};
+                    }
+                """)
+                cells = await page.evaluate("""
+                    () => {
+                        const t = document.getElementById('ITableData0');
+                        if (!t) return [];
+                        return Array.from(t.querySelectorAll('td, th'))
+                            .map(c => (c.innerText || c.textContent || '').trim());
+                    }
+                """)
+            finally:
                 await browser.close()
-            except Exception:
+
+        rows = parse_from_cells(cells, meta_info.get("records", 0))
+        return {
+            "project_no": project_no,
+            "status": "hit" if rows else "miss",
+            "records": len(rows),
+            "rows": rows,
+        }
+    except Exception as e:
+        return {"project_no": project_no, "status": "error", "error": str(e), "rows": []}
+    finally:
+        # Always clean up the temp file
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
                 pass
-            return {"project_no": project_no, "status": "error", "error": str(e), "rows": []}
 
 
 # ---------------------------- HTTP report fetch -----------------------------
