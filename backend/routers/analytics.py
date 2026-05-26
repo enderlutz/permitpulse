@@ -56,10 +56,13 @@ def kpis(db: Session = Depends(get_db), period: str = Query("30d")):
         .order_by(func.count(Permit.id).desc())
         .first()
     )
+    # Group on canonical_builder when available (collapses 5 D.R. Horton
+    # variants into one) and fall back to raw builder for un-classified rows.
+    builder_name_expr = func.coalesce(Permit.canonical_builder, Permit.builder).label("name")
     top_builder_row = (
-        db.query(Permit.builder, func.count(Permit.id).label("n"))
+        db.query(builder_name_expr, func.count(Permit.id).label("n"))
         .filter(Permit.permit_date >= start, Permit.builder.isnot(None))
-        .group_by(Permit.builder)
+        .group_by("name")
         .order_by(func.count(Permit.id).desc())
         .first()
     )
