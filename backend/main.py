@@ -23,10 +23,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+# Hardcoded baseline — local dev + the production Vercel URL — so the API
+# never breaks in browsers because of an unset env var (production CORS
+# blocker discovered 2026-05-26). CORS_ORIGINS env var (comma-separated)
+# extends this list if needed (e.g. for a custom domain later).
+# allow_origin_regex matches any *.vercel.app subdomain so preview deploys
+# don't need manual whitelisting.
+_default_origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:3000",
+    "https://permitpulse-five.vercel.app",
+]
+_extra = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+origins = list(dict.fromkeys(_default_origins + _extra))  # dedupe, preserve order
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
