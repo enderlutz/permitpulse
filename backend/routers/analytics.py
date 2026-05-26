@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
@@ -9,6 +9,12 @@ from models import Permit
 from schemas import KpiSummary, HotspotZip
 
 router = APIRouter()
+
+# All analytics queries are derived from data that only refreshes once a day
+# (via the GitHub Actions cron). Tell browsers + any CDN in front of us to
+# cache aggressively. stale-while-revalidate lets the dashboard render
+# instantly from cache while we refresh in the background.
+ANALYTICS_CACHE = "public, max-age=600, stale-while-revalidate=3600"
 
 
 def _reference_date(db: Session) -> date:
@@ -37,7 +43,8 @@ def _date_range(period: str, db: Session) -> tuple[date, date, date]:
 
 
 @router.get("/kpis", response_model=KpiSummary)
-def kpis(db: Session = Depends(get_db), period: str = Query("30d")):
+def kpis(response: Response, db: Session = Depends(get_db), period: str = Query("30d")):
+    response.headers["Cache-Control"] = ANALYTICS_CACHE
     start, prev_start, today = _date_range(period, db)
 
     this_period = db.query(func.count(Permit.id)).filter(Permit.permit_date >= start).scalar() or 0
@@ -88,8 +95,14 @@ def kpis(db: Session = Depends(get_db), period: str = Query("30d")):
 
 
 @router.get("/hotspots", response_model=list[HotspotZip])
-def hotspots(db: Session = Depends(get_db), period: str = Query("90d"), limit: int = Query(15)):
+def hotspots(
+    response: Response,
+    db: Session = Depends(get_db),
+    period: str = Query("90d"),
+    limit: int = Query(15),
+):
     """Composite hotspot scoring per ZIP — volume + velocity + recency."""
+    response.headers["Cache-Control"] = ANALYTICS_CACHE
     start, prev_start, today = _date_range(period, db)
 
     rows = (
@@ -158,12 +171,14 @@ def hotspots(db: Session = Depends(get_db), period: str = Query("90d"), limit: i
 
 @router.get("/timeseries")
 def timeseries(
+    response: Response,
     db: Session = Depends(get_db),
     period: str = Query("12mo"),
     bucket: str = Query("week"),
     zip_code: Optional[str] = Query(None, alias="zip"),
 ):
     """Time-series volume for time-lapse scrubber and trend charts."""
+    response.headers["Cache-Control"] = ANALYTICS_CACHE
     start, _, today = _date_range(period, db)
     q = db.query(Permit.permit_date, Permit.permit_type).filter(Permit.permit_date >= start)
     if zip_code:
@@ -189,7 +204,8 @@ def timeseries(
 
 
 @router.get("/type-mix")
-def type_mix(db: Session = Depends(get_db), period: str = Query("90d")):
+def type_mix(response: Response, db: Session = Depends(get_db), period: str = Query("90d")):
+    response.headers["Cache-Control"] = ANALYTICS_CACHE
     start, _, _ = _date_range(period, db)
     rows = (
         db.query(Permit.permit_type, func.count(Permit.id).label("n"))

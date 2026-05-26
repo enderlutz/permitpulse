@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, cast, Integer
 
@@ -9,6 +9,8 @@ from models import Permit
 from schemas import PermitOut
 
 router = APIRouter()
+CACHE = "public, max-age=600, stale-while-revalidate=3600"
+META_CACHE = "public, max-age=120, stale-while-revalidate=600"  # meta refreshes more often
 
 
 def _reference_date(db: Session) -> date:
@@ -121,13 +123,14 @@ def permit_types(db: Session = Depends(get_db)):
 
 
 @router.get("/years")
-def permit_years(db: Session = Depends(get_db)):
+def permit_years(response: Response, db: Session = Depends(get_db)):
     """Permit count per year — drives the year-filter UI.
 
     Year is derived from the project_no prefix (25 → 2025, 26 → 2026),
     NOT from permit_date. permit_date is the scrape date, which would
     incorrectly file every re-scraped 2025 project under 2026.
     """
+    response.headers["Cache-Control"] = CACHE
     yr_expr = _project_year_expr().label("yr")
     rows = (
         db.query(yr_expr, func.count(Permit.id).label("n"))
@@ -141,8 +144,9 @@ def permit_years(db: Session = Depends(get_db)):
 
 
 @router.get("/meta")
-def permits_meta(db: Session = Depends(get_db)):
+def permits_meta(response: Response, db: Session = Depends(get_db)):
     """Dataset freshness/coverage signals for the dashboard 'Last updated' badge."""
+    response.headers["Cache-Control"] = META_CACHE
     latest_ingest = db.query(func.max(Permit.ingested_at)).scalar()
     latest_permit = db.query(func.max(Permit.permit_date)).scalar()
     total = db.query(func.count(Permit.id)).scalar() or 0

@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, or_
 
@@ -10,6 +10,7 @@ from models import Permit
 router = APIRouter()
 
 VALID_TIERS = {"national", "local", "individual", "unknown"}
+CACHE = "public, max-age=600, stale-while-revalidate=3600"
 
 
 def _reference_date(db: Session) -> date:
@@ -29,11 +30,13 @@ def _parse_tiers(tiers: Optional[str]) -> list[str]:
 
 @router.get("/leaderboard")
 def leaderboard(
+    response: Response,
     db: Session = Depends(get_db),
     period: str = Query("30d"),
     limit: int = Query(10),
     tiers: Optional[str] = Query(None, description="Comma-separated: national,local,individual,unknown. Default: national,local"),
 ):
+    response.headers["Cache-Control"] = CACHE
     days = int(period[:-1]) if period.endswith("d") else (365 if period == "12mo" else 30)
     cutoff = _reference_date(db) - timedelta(days=days)
     tier_filter = _parse_tiers(tiers)
