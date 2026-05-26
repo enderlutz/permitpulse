@@ -1,6 +1,7 @@
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -9,26 +10,22 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./permit_pulse.db")
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-# Pool tuning for production: the dashboard fires ~12-15 parallel requests
-# on every page load (KPIs, leaderboard, map, hotspots, time-series, etc.).
-# Default SQLAlchemy QueuePool is size=5, max_overflow=10 — easy to exhaust
-# when a single user clicks around quickly, causing 500 errors that the
-# browser then mis-reports as "CORS blocked" (FastAPI's CORS middleware
-# can't add headers to a response Railway's edge has already replaced with
-# its own 500 page).
+# Pool strategy: NullPool for Postgres (Supabase).
 #
-# Postgres-side: Supabase Session pooler accepts up to ~60 connections per
-# project on the free tier. Pool size 20 + overflow 30 = 50 max, well under
-# the cap. recycle=300 closes idle connections before Supabase does so we
-# don't hit "connection invalidated" errors on next checkout.
+# Supabase's free-tier Session pooler (port 5432) has a low per-project
+# connection cap and rejects bursts. SQLAlchemy's default QueuePool holds
+# connections open across requests, which trips Supabase's limit during
+# dashboard load (12-15 parallel requests from a single user). The previous
+# attempt to *raise* pool_size made things worse: more idle conns held =
+# more rejections from Supabase.
+#
+# NullPool opens a fresh connection per checkout and closes it immediately.
+# Supabase's own pgbouncer handles efficient pooling on the DB side. Result:
+# bursts go through cleanly because Supabase only sees in-flight conns, not
+# idle ones we're holding for "maybe later".
 _pool_kwargs = {}
 if not DATABASE_URL.startswith("sqlite"):
-    _pool_kwargs.update(
-        pool_size=20,
-        max_overflow=30,
-        pool_recycle=300,
-        pool_timeout=10,
-    )
+    _pool_kwargs["poolclass"] = NullPool
 
 engine = create_engine(
     DATABASE_URL,
