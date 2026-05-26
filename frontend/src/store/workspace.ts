@@ -84,6 +84,29 @@ export const useWorkspace = create<WorkspaceState>()(
       setFilter: (k, v) => set((s) => ({ filters: { ...s.filters, [k]: v } })),
       clearFilters: () => set({ filters: defaultFilters }),
     }),
-    { name: "permit-pulse-workspace-v1" }
+    {
+      // Bumped to v2 (2026-05-26) to discard old persisted state from when
+      // TimelapseScrubber was hijacking dateFrom/dateTo to a future week.
+      // Any user who hit that bug had localStorage holding bad dates that
+      // persisted across reloads even after the scrubber fix landed.
+      name: "permit-pulse-workspace-v2",
+      // Only persist user-set preferences. dateFrom/dateTo are transient
+      // widget state (TimelapseScrubber pushes them when actively used) —
+      // saving them caused the map to load a "stale week" filter every
+      // session even when no one wanted scrubbing.
+      partialize: (s) => ({
+        byPage: s.byPage,
+        filters: {
+          period: s.filters.period,
+          zip: s.filters.zip,
+          builder: s.filters.builder,
+          permitType: s.filters.permitType,
+          useClass: s.filters.useClass,
+          years: s.filters.years,
+          dateFrom: null,
+          dateTo: null,
+        },
+      }),
+    }
   )
 );
