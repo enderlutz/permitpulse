@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, cast, Integer
 
 from db import get_db
 from models import Permit
@@ -14,6 +14,18 @@ router = APIRouter()
 def _reference_date(db: Session) -> date:
     """Anchor period queries on the latest permit date — see analytics.py docstring."""
     return db.query(func.max(Permit.permit_date)).scalar() or date.today()
+
+
+def _project_year_expr():
+    """Year-of-permit derived from project_no prefix (YY in 'YYDDDxxx').
+
+    permit_date in this DB is the scrape date, not the real issuance date
+    (city site doesn't expose per-permit dates). Without this projection,
+    re-scraping a 2025 project would file it under 2026 just because we
+    scraped it today. Project number 25xxx ⇒ 2025; 26xxx ⇒ 2026.
+    """
+    yy = cast(func.substr(Permit.project_no, 1, 2), Integer)
+    return 2000 + yy
 
 
 def _period_days(period: str) -> int:
@@ -57,8 +69,7 @@ def list_permits(
         except ValueError:
             raise HTTPException(400, "years must be comma-separated integers")
         if year_list:
-            from sqlalchemy import extract
-            q = q.filter(extract("year", Permit.permit_date).in_(year_list))
+            q = q.filter(_project_year_expr().in_(year_list))
     if period and not date_from:
         ref = _reference_date(db)
         date_from = ref - timedelta(days=_period_days(period))
@@ -111,16 +122,22 @@ def permit_types(db: Session = Depends(get_db)):
 
 @router.get("/years")
 def permit_years(db: Session = Depends(get_db)):
-    """Permit count per year — drives the year-filter UI."""
-    from sqlalchemy import extract
+    """Permit count per year — drives the year-filter UI.
+
+    Year is derived from the project_no prefix (25 → 2025, 26 → 2026),
+    NOT from permit_date. permit_date is the scrape date, which would
+    incorrectly file every re-scraped 2025 project under 2026.
+    """
+    yr_expr = _project_year_expr().label("yr")
     rows = (
-        db.query(extract("year", Permit.permit_date).label("yr"), func.count(Permit.id).label("n"))
-        .filter(Permit.permit_date.isnot(None))
+        db.query(yr_expr, func.count(Permit.id).label("n"))
+        .filter(Permit.project_no.isnot(None))
+        .filter(func.length(Permit.project_no) >= 2)
         .group_by("yr")
         .order_by("yr")
         .all()
     )
-    return [{"year": int(yr), "count": n} for yr, n in rows if yr is not None]
+    return [{"year": int(yr), "count": n} for yr, n in rows if yr is not None and 2000 <= yr <= 2030]
 
 
 @router.get("/meta")
