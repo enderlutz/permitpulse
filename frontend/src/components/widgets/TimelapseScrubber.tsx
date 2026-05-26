@@ -18,12 +18,28 @@ export function TimelapseScrubber() {
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  // Track whether the user has actively interacted with the scrubber.
+  // Without this guard, the widget would set dateFrom/dateTo on mount to
+  // the latest week — hijacking every other widget's filters before the
+  // user even knew this widget existed. Stays inert until Play or scrub.
+  const [userDriven, setUserDriven] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   // Reset to end when data loads
   useEffect(() => {
     if (buckets.length) setIndex(buckets.length - 1);
   }, [buckets.length]);
+
+  // Clear hijacked filters when this widget unmounts or user resets
+  useEffect(() => {
+    return () => {
+      if (userDriven) {
+        setFilter("dateFrom", null);
+        setFilter("dateTo", null);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!playing || !buckets.length) return;
@@ -45,10 +61,11 @@ export function TimelapseScrubber() {
   const current = buckets[index];
   const max = useMemo(() => Math.max(1, ...buckets.map((b) => b.count)), [buckets]);
 
-  // Push filter to date range based on current bucket
+  // Push filter to date range based on current bucket — ONLY when user
+  // has actively engaged the scrubber. Otherwise the widget would hijack
+  // the global filters on mount and the map would show only the latest week.
   useEffect(() => {
-    if (!current) return;
-    // Parse bucket "2025-W47" → date range
+    if (!userDriven || !current) return;
     const m = current.bucket.match(/(\d{4})-W(\d{2})/);
     if (!m) return;
     const year = parseInt(m[1]);
@@ -60,7 +77,7 @@ export function TimelapseScrubber() {
     end.setUTCDate(start.getUTCDate() + 6);
     setFilter("dateFrom", start.toISOString().slice(0, 10));
     setFilter("dateTo", end.toISOString().slice(0, 10));
-  }, [index, current, setFilter]);
+  }, [index, current, setFilter, userDriven]);
 
   return (
     <div className="flex h-full flex-col gap-2">
@@ -68,7 +85,10 @@ export function TimelapseScrubber() {
         <Button
           variant={playing ? "secondary" : "default"}
           size="icon"
-          onClick={() => setPlaying((p) => !p)}
+          onClick={() => {
+            setUserDriven(true);
+            setPlaying((p) => !p);
+          }}
           aria-label={playing ? "Pause" : "Play"}
         >
           {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
@@ -77,7 +97,11 @@ export function TimelapseScrubber() {
           variant="ghost"
           size="icon"
           onClick={() => {
-            setIndex(0);
+            // Reset clears the hijacked filters and goes back to "no scrubbing"
+            setUserDriven(false);
+            setFilter("dateFrom", null);
+            setFilter("dateTo", null);
+            setIndex(buckets.length ? buckets.length - 1 : 0);
             setPlaying(false);
           }}
           aria-label="Restart"
@@ -112,6 +136,7 @@ export function TimelapseScrubber() {
             <button
               key={b.bucket}
               onClick={() => {
+                setUserDriven(true);
                 setIndex(i);
                 setPlaying(false);
               }}
@@ -132,6 +157,7 @@ export function TimelapseScrubber() {
         max={Math.max(0, buckets.length - 1)}
         value={index}
         onChange={(e) => {
+          setUserDriven(true);
           setIndex(parseInt(e.target.value));
           setPlaying(false);
         }}
