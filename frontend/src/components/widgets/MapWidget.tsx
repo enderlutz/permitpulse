@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Layers, Flame, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Permit } from "@/lib/types";
+import { MapLegend } from "./MapLegend";
+import { BuilderDetailDrawer } from "./BuilderDetailDrawer";
 
 const HOUSTON_CENTER: L.LatLngExpression = [29.7604, -95.3698];
 
@@ -23,6 +25,7 @@ export function MapWidget() {
   const [showHeat, setShowHeat] = useState(true);
   const [showPins, setShowPins] = useState(true);
   const [selectedPermit, setSelectedPermit] = useState<Permit | null>(null);
+  const [detailBuilder, setDetailBuilder] = useState<string | null>(null);
 
   const filters = useWorkspace((s) => s.filters);
 
@@ -156,6 +159,17 @@ export function MapWidget() {
         <span className="ml-1 text-muted-foreground">permits in view</span>
       </div>
 
+      {/* Legend (bottom-left, above the live count) */}
+      <div className="absolute bottom-12 left-3 z-[400] max-w-[220px]">
+        <MapLegend colorMode={colorMode} showHeat={showHeat} showPins={showPins} />
+      </div>
+
+      {/* Builder profile drawer (opened from pin builder name link) */}
+      <BuilderDetailDrawer
+        builder={detailBuilder}
+        onClose={() => setDetailBuilder(null)}
+      />
+
       {/* Detail drawer */}
       {selectedPermit && (
         <div className="absolute bottom-3 right-3 z-[400] w-72 rounded-md border border-border bg-popover/95 p-3 shadow-xl backdrop-blur">
@@ -177,7 +191,21 @@ export function MapWidget() {
             <div className="text-muted-foreground">Date</div>
             <div className="num">{selectedPermit.permit_date}</div>
             <div className="text-muted-foreground">Builder</div>
-            <div className="truncate">{selectedPermit.builder || "—"}</div>
+            <div className="truncate">
+              {selectedPermit.builder ? (
+                <button
+                  className="text-foreground underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setDetailBuilder(selectedPermit.builder!);
+                  }}
+                  title="View builder profile"
+                >
+                  {selectedPermit.builder}
+                </button>
+              ) : (
+                "—"
+              )}
+            </div>
             <div className="text-muted-foreground">Sq ft</div>
             <div className="num">{selectedPermit.square_feet?.toLocaleString() || "—"}</div>
             <div className="text-muted-foreground">Use</div>

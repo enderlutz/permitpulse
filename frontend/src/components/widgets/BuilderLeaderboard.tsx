@@ -5,6 +5,7 @@ import { builderColor } from "@/lib/colors";
 import { useWorkspace } from "@/store/workspace";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { BuilderDetailDrawer } from "./BuilderDetailDrawer";
 
 type Tier = "national" | "local" | "individual";
 
@@ -24,6 +25,7 @@ export function BuilderLeaderboard() {
   const period = useWorkspace((s) => s.filters.period);
   const builderFilter = useWorkspace((s) => s.filters.builder);
   const setFilter = useWorkspace((s) => s.setFilter);
+  const [detailBuilder, setDetailBuilder] = useState<string | null>(null);
 
   // All three tiers visible by default. Homeowner permits aren't noise —
   // they're a market signal: ZIPs with heavy DIY activity hint at remodeling
@@ -66,6 +68,11 @@ export function BuilderLeaderboard() {
         ))}
       </div>
 
+      <BuilderDetailDrawer
+        builder={detailBuilder}
+        onClose={() => setDetailBuilder(null)}
+      />
+
       {/* Leaderboard rows */}
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
         {activeTiers.length === 0 ? (
@@ -86,11 +93,19 @@ export function BuilderLeaderboard() {
             return (
               <button
                 key={row.builder}
-                onClick={() => setFilter("builder", active ? null : row.builder)}
+                onClick={() => setDetailBuilder(row.builder)}
                 className={cn(
                   "group relative flex items-center justify-between rounded px-2 py-1 text-left text-xs transition-colors hover:bg-secondary/60",
                   active && "bg-secondary"
                 )}
+                title="Click for builder profile · Shift-click to filter dashboard"
+                onAuxClick={(e) => {
+                  // Middle-click or shift-click keeps the old "filter" behavior
+                  if (e.shiftKey) {
+                    e.preventDefault();
+                    setFilter("builder", active ? null : row.builder);
+                  }
+                }}
               >
                 <div
                   className="absolute inset-y-0 left-0 rounded bg-gradient-to-r opacity-15"
