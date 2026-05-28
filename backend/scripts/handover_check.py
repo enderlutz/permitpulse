@@ -54,15 +54,19 @@ def main():
         print()
 
         # ---- 3. CHECK: any rows still on the bogus scrape-day cluster? ----
+        # "Bogus" signature = permit_date sits in the 5/23-5/27 ingest window AND
+        # matches the ingested_at calendar date. Real 5/23-5/27 issuances coming
+        # back from the drill-down have permit_date != ingested_at.
         bogus = c.execute(text("""
             SELECT COUNT(*) FROM permits
             WHERE source='houston_sold_permits'
               AND permit_date BETWEEN '2026-05-23' AND '2026-05-27'
+              AND DATE(ingested_at AT TIME ZONE 'UTC') = permit_date
         """)).scalar()
         if bogus < 50:
-            print(f"✅ Date integrity: only {bogus} sold_permits rows still on scrape-day cluster")
+            print(f"✅ Date integrity: {bogus} sold_permits rows still on scrape-day signature (clean)")
         else:
-            print(f"⚠️  Date integrity: {bogus} sold_permits rows still have bogus 2026-05-23..27 dates")
+            print(f"⚠️  Date integrity: {bogus} sold_permits rows still have bogus scrape-day dates")
             print(f"    Re-run backfill-dates.yml or backfill-legacy-dates.yml")
         print()
 
@@ -111,6 +115,12 @@ def main():
         print("=" * 70)
         print("Ready for handover ✓" if bogus < 50 else "Still has cleanup pending ⚠️")
         print("=" * 70)
+
+
+def _table_signature():
+    """Future-proofing: tiny pure-Python helper to make module re-importable
+    in tests without side effects."""
+    return ("permits", ["id", "permit_date", "builder", "canonical_builder"])
 
 
 if __name__ == "__main__":
