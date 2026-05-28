@@ -97,13 +97,18 @@ async def worker(name: str, queue: asyncio.Queue, results: dict):
                 continue
             results["queried"] += 1
             if r["status"] == "hit" and r.get("rows"):
-                normalized = [to_permit_row(row) for row in r["rows"]]
+                details_by_pt = r.get("details_by_pt", {})
+                normalized = []
+                for row in r["rows"]:
+                    pt = (row.get("PERMIT_TYPE") or "").strip()
+                    normalized.append(to_permit_row(row, detail=details_by_pt.get(pt)))
                 normalized = [n for n in normalized if n.get("project_no") and n["project_no"][0].isdigit()]
                 if normalized:
                     upsert_rows(normalized)
                     results["hits"] += 1
                     results["records"] += len(normalized)
-                    print(f"  [{name}] ✓ {pn}  {len(normalized)} records  ({results['queried']}/{results['total']})")
+                    n_dated = sum(1 for n in normalized if n.get("permit_date"))
+                    print(f"  [{name}] ✓ {pn}  {len(normalized)} records  ({n_dated} dated)  ({results['queried']}/{results['total']})")
             elif r["status"] == "miss":
                 results["misses"] += 1
                 if results["queried"] % 25 == 0:

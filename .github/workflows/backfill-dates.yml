@@ -1,0 +1,97 @@
+name: Backfill Real Permit Dates
+
+# One-time (resumable) backfill that walks every sold_permits row in Supabase
+# and pulls the true issuance Date / builder / valuation from the sold_permit_d
+# drill-down endpoint. Replaces the bogus "scrape-day" permit_date that the
+# pre-2026-05-28 scraper wrote.
+#
+# Designed for parallel kickoff: split the work across multiple runs by passing
+# different --since-id / --limit args. Each run is independent.
+#
+# Trigger manually from the Actions tab.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since_id:
+        description: "Start from permits.id > N (resume / parallelize). Blank = from beginning."
+        required: false
+        default: ""
+      limit:
+        description: "Cap rows processed this run. Blank = process everything matching."
+        required: false
+        default: ""
+      concurrency:
+        description: "Parallel drill-down requests"
+        required: false
+        default: "6"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Pre-run row counts
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -c "
+          from sqlalchemy import text
+          from db import engine
+          with engine.connect() as c:
+              total = c.execute(text(\"SELECT COUNT(*) FROM permits WHERE source='houston_sold_permits' AND permit_code NOT IN ('LEGACY','UNK')\")).scalar()
+              wrong_dates = c.execute(text(\"SELECT COUNT(*) FROM permits WHERE source='houston_sold_permits' AND permit_date::text = ingested_at::date::text\")).scalar()
+              print(f'Before run — eligible rows: {total}, rows where permit_date == ingested_date: {wrong_dates}')
+          "
+
+      - name: Run backfill
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          SINCE="${{ github.event.inputs.since_id }}"
+          LIMIT="${{ github.event.inputs.limit }}"
+          CONC="${{ github.event.inputs.concurrency || '6' }}"
+
+          ARGS=(--concurrency "$CONC")
+          if [ -n "$SINCE" ]; then ARGS+=(--since-id "$SINCE"); fi
+          if [ -n "$LIMIT" ]; then ARGS+=(--limit "$LIMIT"); fi
+
+          echo "→ Running: python -m scripts.backfill_dates ${ARGS[@]}"
+          python -m scripts.backfill_dates "${ARGS[@]}"
+
+      - name: Post-run row counts
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -c "
+          from sqlalchemy import text
+          from db import engine
+          with engine.connect() as c:
+              print('Monthly distribution after backfill:')
+              for r in c.execute(text(\"\"\"
+                  SELECT to_char(permit_date, 'YYYY-MM') AS ym, COUNT(*)
+                  FROM permits WHERE source='houston_sold_permits' AND permit_date IS NOT NULL
+                  GROUP BY ym ORDER BY ym
+              \"\"\")):
+                  print(' ', r)
+          "

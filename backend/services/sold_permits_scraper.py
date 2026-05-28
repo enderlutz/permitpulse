@@ -29,6 +29,10 @@ from playwright.async_api import async_playwright
 
 FORM_URL = "https://cohtora.houstontx.gov/approot/soldpermits/online_permit.htm"
 REPORT_URL = "https://cohtora.houstontx.gov/ibi_apps/WFServlet.ibfs"
+# Drill-down endpoint discovered 2026-05-28 — exposes the true per-project
+# issuance Date (and FCC Group + Buyer) that the search-results page hides.
+# Same WFServlet, different IBIF_ex value. See fetch_project_detail() below.
+DETAIL_URL = REPORT_URL
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"
 
 
@@ -80,6 +84,125 @@ async def harvest_session() -> Session:
         for c in playwright_cookies:
             jar.set(c["name"], c["value"], domain=c["domain"], path=c.get("path", "/"))
         return Session(token=token_holder["token"], cookies=jar)
+
+
+# ---------------------------- Project Detail (drill-down) -------------------
+#
+# The Sold Permits search-results page exposes 7 columns and NO issuance date.
+# However each row's PROJECT_NO is a drill-down link to IBIF_ex=sold_permit_d,
+# which returns a richer "Project Details" page including the real per-project
+# permit Date, FCC Group, and Buyer. PT (permit_code) is required; passing a
+# PT that doesn't belong to that project yields "no output".
+#
+# Date is per-sub-permit, NOT per-project. Each sub-permit (Building, Electrical,
+# Plumbing, etc.) gets issued on its own day — plan review (PX) typically months
+# before the actual trade permits. So we drill once per (PN, PT) to capture each
+# sub-permit's true issuance date. Verified 2026-05-28 on PN=26017768: PX=2026-03-03,
+# Building=2026-03-04, Electrical=2026-05-14, Plumbing=2026-05-16, HVAC=2026-05-15.
+
+_DATE_RE  = re.compile(r"Date\s*:\s*(\d{4})/(\d{1,2})/(\d{1,2})")
+_USE_RE   = re.compile(r"USE\s*:\s*(.*?)\s*Owner/Occupant", re.S)
+_OWNER_RE = re.compile(r"Owner/Occupant\s*:\s*(.*?)\s*Job Address", re.S)
+_ADDR_RE  = re.compile(r"Job Address\s*:\s*(.*?)\s*Valuation", re.S)
+_VAL_RE   = re.compile(r"Valuation\s*:\s*\$?\s*([\d,]+(?:\.\d+)?)")
+_FCC_RE   = re.compile(r"FCC Group\s*:\s*(.*?)\s*Buyer", re.S)
+_BUYER_RE = re.compile(r"Buyer\s*:\s*(.*?)\s*Address\s*:", re.S)
+
+
+def _parse_detail_html(html: str) -> Optional[dict]:
+    """Strip HTML and pull the labeled Project Details fields. Returns None
+    when the response isn't a Project Details page (e.g. wrong PT, error)."""
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text)
+    if "Date :" not in text:
+        return None
+    d = _DATE_RE.search(text)
+    permit_date = None
+    if d:
+        import datetime
+        try:
+            permit_date = datetime.date(int(d.group(1)), int(d.group(2)), int(d.group(3)))
+        except ValueError:
+            permit_date = None
+
+    def _grab(rx):
+        m = rx.search(text)
+        if not m:
+            return None
+        v = m.group(1).strip()
+        return v or None
+
+    val_raw = _grab(_VAL_RE)
+    project_value = None
+    if val_raw:
+        try:
+            project_value = float(val_raw.replace(",", ""))
+        except ValueError:
+            project_value = None
+
+    return {
+        "permit_date": permit_date,
+        "use_description": _grab(_USE_RE),
+        "owner": _grab(_OWNER_RE),
+        "job_address": _grab(_ADDR_RE),
+        "project_value": project_value,
+        "fcc_group": _grab(_FCC_RE),
+        "buyer": _grab(_BUYER_RE),
+    }
+
+
+async def fetch_project_detail(client: httpx.AsyncClient, project_no: str, permit_type: str) -> Optional[dict]:
+    """Hit the sold_permit_d drill-down and return the parsed Project Details
+    dict (with `permit_date`, `owner`, `project_value`, `fcc_group`, etc.).
+
+    Returns None if the (PN, PT) pair doesn't resolve — caller can try a
+    different sub-permit code. Stateless GET; no session token needed."""
+    params = {
+        "IBIF_webapp": "/ibi_apps",
+        "IBIC_server": "EDASERVE",
+        "IBIWF_msgviewer": "OFF",
+        "IBIAPP_app": "soldpermits",
+        "IBIF_ex": "sold_permit_d",
+        "CLICKED_ON": "",
+        "PN": project_no,
+        "PT": permit_type,
+    }
+    try:
+        r = await client.get(DETAIL_URL, params=params, headers={"User-Agent": UA}, timeout=20)
+    except httpx.HTTPError:
+        return None
+    if r.status_code != 200 or not r.text:
+        return None
+    return _parse_detail_html(r.text)
+
+
+# Common PT codes ordered roughly by hit frequency on Houston residential builds.
+# Used by enrichment paths where we don't already know a valid sub-permit code
+# (e.g. eReport rows that carry permit_code='LEGACY' from a pre-migration insert).
+COMMON_PT_CANDIDATES = ["BU", "13", "11", "12", "14", "PX", "CC", "BX", "GI", "CO", "FF", "WK", "FG"]
+
+
+async def fetch_project_detail_any_pt(
+    client: httpx.AsyncClient,
+    project_no: str,
+    pt_hints: Optional[list[str]] = None,
+) -> Optional[dict]:
+    """Try a list of candidate PTs until the drill-down returns Project Details.
+    Use pt_hints when we already know one valid sub-permit code; fall back to
+    COMMON_PT_CANDIDATES otherwise. ~5-7 attempts worst-case but most hit on 1-2."""
+    seen: set[str] = set()
+    sequence: list[str] = []
+    for pt in (pt_hints or []):
+        if pt and pt not in seen and pt not in ("LEGACY", "UNK"):
+            sequence.append(pt); seen.add(pt)
+    for pt in COMMON_PT_CANDIDATES:
+        if pt not in seen:
+            sequence.append(pt); seen.add(pt)
+    for pt in sequence:
+        result = await fetch_project_detail(client, project_no, pt)
+        if result and result.get("permit_date"):
+            return result
+    return None
 
 
 # ---------------------------- Active Report parsing -------------------------
@@ -237,14 +360,34 @@ async def scrape_via_dom(project_no: str) -> dict:
                 await browser.close()
 
         rows = parse_from_cells(cells, meta_info.get("records", 0))
+
+        # Enrich each sub-permit row with its own Date / Valuation / FCC Group /
+        # Buyer via the drill-down detail report. The search-results page exposes
+        # NO issuance date — only the detail page does, and dates vary by
+        # sub-permit type (PX is typically months before the actual trade permits).
+        # Drilling per (PN, PT) gives per-sub-permit accuracy.
+        details_by_pt: dict[str, dict] = {}
+        if rows:
+            pts = [r.get("PERMIT_TYPE", "").strip() for r in rows if r.get("PERMIT_TYPE")]
+            unique_pts = list({pt for pt in pts if pt})
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as detail_client:
+                detail_results = await asyncio.gather(
+                    *[fetch_project_detail(detail_client, project_no, pt) for pt in unique_pts],
+                    return_exceptions=True,
+                )
+            for pt, d in zip(unique_pts, detail_results):
+                if isinstance(d, dict) and d.get("permit_date"):
+                    details_by_pt[pt] = d
+
         return {
             "project_no": project_no,
             "status": "hit" if rows else "miss",
             "records": len(rows),
             "rows": rows,
+            "details_by_pt": details_by_pt,
         }
     except Exception as e:
-        return {"project_no": project_no, "status": "error", "error": str(e), "rows": []}
+        return {"project_no": project_no, "status": "error", "error": str(e), "rows": [], "details_by_pt": {}}
     finally:
         # Always clean up the temp file
         if tmp_path and os.path.exists(tmp_path):
@@ -328,17 +471,17 @@ VALUATION_RE = re.compile(r"[\d.]+")
 
 
 def _scrape_date() -> "datetime.date":
-    """Date this scrape was run. The Sold Permits report doesn't expose a
-    per-permit issuance date — just a report-generation date at the top. So
-    we use the current calendar date as a proxy. Imperfect (a permit in the
-    backfill might actually have been issued days/weeks ago) but it gets
-    rows into the year filter and time-series widgets, which is what matters
-    for the demo. Daily cron runs will keep this approximately accurate."""
+    """Fallback only — used when the drill-down detail page failed to return
+    a valid Date. The Project Details page is the authoritative source for
+    issuance date; this just keeps rows out of NULL-date land so they still
+    show up in widgets while we wait for a retry. Prior behavior used today()
+    unconditionally and produced 36k mis-dated rows in May 2026, all of which
+    were actually issued anywhere from Jan 2025 through May 2026."""
     import datetime
     return datetime.date.today()
 
 
-def to_permit_row(scraped: dict) -> dict:
+def to_permit_row(scraped: dict, detail: Optional[dict] = None) -> dict:
     """Map an Active Report row to our Permit model columns.
 
     Field mapping observed in WebFOCUS output:
@@ -368,10 +511,17 @@ def to_permit_row(scraped: dict) -> dict:
     # than NULL (which Postgres treats as distinct from other NULLs).
     permit_code = (scraped.get("PERMIT_TYPE") or "").strip() or "UNK"
 
+    # Prefer drill-down detail for date + valuation when available. The search
+    # results page never exposes the real issuance date, and its CURRENT_VALUATION
+    # is often "0" for projects whose valuation lives only in the detail.
+    permit_date = detail["permit_date"] if detail and detail.get("permit_date") else _scrape_date()
+    if detail and detail.get("project_value") is not None:
+        project_value = detail["project_value"]
+
     return {
         "project_no": pn,
         "permit_code": permit_code,
-        "permit_date": _scrape_date(),
+        "permit_date": permit_date,
         "permit_type": (scraped.get("PERMIT_DESC") or "").strip() or None,
         "address": address or None,
         "zip_code": zip_code,
