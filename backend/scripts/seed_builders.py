@@ -53,7 +53,12 @@ def upsert_builders(db):
 
 
 def heuristic_assign(db):
-    """Tag a slice of permits with builders weighted by submarket affinity."""
+    """DEPRECATED — randomly assigned major builders to permits by ZIP affinity
+    as a demo bridge before we had real owner data. Now that enrich_ereport.py
+    pulls real OWNER_OCCUPANT from the city's drill-down, this would corrupt
+    the data. Left as a no-op so old callers don't break."""
+    print("heuristic_assign: SKIPPED (deprecated — use enrich_ereport for real data)")
+    return
     rng = random.Random(42)
     untagged = db.query(Permit).filter(Permit.builder.is_(None)).all()
     if not untagged:
