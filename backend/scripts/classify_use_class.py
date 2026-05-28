@@ -26,29 +26,43 @@ from models import Permit  # noqa: E402
 
 
 # Order matters — more specific first. Each rule is (label, regex).
+#
+# Notes from audit on 2026-05-28:
+#  - permit_type often carries Houston-specific codes that incidentally
+#    contain English words ("C/W STORE BILL" is a dumpster-permit type
+#    code, not a retail "store"). Classifying off comments only avoids
+#    those false positives.
+#  - "FACTORY" alone catches "FACTORY SALON" (a salon-chain brand). Use
+#    "MANUFACTURING PLT" / "INDUSTRIAL BLDG" instead so only real
+#    industrial sites match.
+#  - "STORE" / "SHOP" / "MART" / "SUITE" are too generic — replaced with
+#    distinct retail/office descriptors. "C-STORE" + "CONVENIENCE STORE"
+#    cover convenience stores explicitly without false-positive risk.
 RULES: list[tuple[str, re.Pattern]] = [
-    ("restaurant", re.compile(r"\b(RESTAURANT|TAQUERIA|PIZZA|CAFE|CAFÉ|BAR|GRILL|BURGER|KITCHEN|EATERY|BISTRO|STEAKHOUSE|BAKERY|DELI|DINER|SUSHI|RAMEN)\b", re.I)),
-    ("hotel",      re.compile(r"\b(HOTEL|MOTEL|INN|RESORT|SUITES|MARRIOTT|HILTON|HYATT|HOLIDAY INN)\b", re.I)),
-    ("clinic",     re.compile(r"\b(CLINIC|MEDICAL|HOSPITAL|DENTAL|HEALTH CARE|HEALTHCARE|URGENT CARE|PHARMACY|PEDIATRIC|VETERINARY|ANIMAL)\b", re.I)),
-    ("school",     re.compile(r"\b(SCHOOL|UNIVERSITY|COLLEGE|ACADEMY|EDUCATION|CLASSROOM|ISD|DAYCARE|PRESCHOOL|KINDERGARTEN)\b", re.I)),
-    ("church",     re.compile(r"\b(CHURCH|TEMPLE|MOSQUE|SYNAGOGUE|CHAPEL|CATHEDRAL|MINISTRIES|PARISH|WORSHIP)\b", re.I)),
-    ("warehouse",  re.compile(r"\b(WAREHOUSE|STORAGE FACIL|DISTRIBUTION|INDUSTRIAL|MANUFACTURING|FACTORY|FULFILLMENT|LOGISTICS)\b", re.I)),
-    ("retail",     re.compile(r"\b(RETAIL|STORE|SHOP|MART|WALGREENS|CVS|MALL|SHOPPING|BOUTIQUE|SHOWROOM|DEALERSHIP)\b", re.I)),
-    ("office",     re.compile(r"\b(OFFICE|COWORKING|HEADQUARTERS|HQ|CORPORATE|PROFESSIONAL BLDG|WORKSPACE|SUITE)\b", re.I)),
-    ("apartment",  re.compile(r"\b(APARTMENT|APT BLDG|APT\.|MULTI-FAMILY|MULTIFAMILY|MFU|TOWNHOM|CONDO|HIGH-RISE|HIGH RISE|MID-RISE|LOFT)\b", re.I)),
-    ("residential",re.compile(r"\b(RESIDENTIAL|SINGLE FAMILY|S\.F\. RES|SF RES|SFR|HOME|HOUSE|GARAGE|DRIVEWAY|FENCE|POOL|PATIO|DECK|SHED)\b", re.I)),
-    ("commercial", re.compile(r"\b(COMMERCIAL|BUSINESS|MERCANTILE|TENANT FINISH|TENANT IMPROVEMENT)\b", re.I)),
-    ("sign",       re.compile(r"\b(SIGN|SIGNAGE|BILLBOARD|ILLUM)\b", re.I)),
-    ("infrastructure", re.compile(r"\b(WATER|WASTE WATER|WW UTILITY|SEWER|UTILITY|PAVING|ROADWAY|BRIDGE|DRAINAGE)\b", re.I)),
+    ("restaurant", re.compile(r"\b(RESTAURANT|TAQUERIA|PIZZERIA|PIZZA SHOP|CAFE|CAFÉ|GRILL|BURGER|KITCHEN REMODEL|EATERY|BISTRO|STEAKHOUSE|BAKERY|DELI|DINER|SUSHI|RAMEN|FOOD COURT|COFFEE SHOP)\b", re.I)),
+    ("hotel",      re.compile(r"\b(HOTEL|MOTEL|RESORT|HOLIDAY INN|MARRIOTT|HILTON|HYATT)\b", re.I)),
+    ("clinic",     re.compile(r"\b(CLINIC|MEDICAL OFFICE|HOSPITAL|DENTAL OFFICE|URGENT CARE|PHARMACY|PEDIATRIC|VETERINARY)\b", re.I)),
+    ("school",     re.compile(r"\b(SCHOOL|UNIVERSITY|COLLEGE|ACADEMY|CLASSROOM|ISD|DAYCARE|PRESCHOOL)\b", re.I)),
+    ("church",     re.compile(r"\b(CHURCH|TEMPLE|MOSQUE|SYNAGOGUE|CHAPEL|CATHEDRAL|PARISH)\b", re.I)),
+    ("warehouse",  re.compile(r"\b(WAREHOUSE|WHSE|NEW WHSE|STORAGE FACIL|STORAGE BLDG|DISTRIBUTION CTR|DISTRIBUTION CENTER|FULFILLMENT|LOGISTICS CTR|MANUFACTURING PLT|INDUSTRIAL BLDG)\b", re.I)),
+    ("retail",     re.compile(r"\b(RETAIL|SHOPPING CTR|SHOPPING CENTER|STRIP CTR|MALL|BOUTIQUE|SHOWROOM|DEALERSHIP|C-STORE|CONVENIENCE STORE|GAS STATION)\b", re.I)),
+    ("office",     re.compile(r"\b(OFFICE BLDG|OFFICE REMODEL|OFFICE BUILDOUT|COWORKING|HEADQUARTERS|CORPORATE HQ|PROFESSIONAL BLDG)\b", re.I)),
+    ("apartment",  re.compile(r"\b(APARTMENT|APT BLDG|MULTI-FAMILY|MULTIFAMILY|MFU|TOWNHOM|CONDO|HIGH-RISE|MID-RISE|LOFT)\b", re.I)),
+    ("residential",re.compile(r"\b(SF RES|SFR|SINGLE FAMILY|RESIDENTIAL DWELLING|NEW HOME|GARAGE|DRIVEWAY|FENCE|POOL|PATIO|DECK|REROOF)\b", re.I)),
+    ("commercial", re.compile(r"\b(COMMERCIAL|MERCANTILE|TENANT FINISH|TENANT IMPROVEMENT)\b", re.I)),
+    ("sign",       re.compile(r"\b(SIGN PLAN|SIGNAGE|BILLBOARD|ILLUM SIGN|NON-ILLUM SIGN)\b", re.I)),
+    ("infrastructure", re.compile(r"\b(WW UTILITY|SEWER LINE|WATER LINE|FIRE HYDRANT|PAVING|ROADWAY|BRIDGE|DRAINAGE|MANHOLE|LIFT STN)\b", re.I)),
 ]
 
 
-def classify(comments: str | None, permit_type: str | None) -> str | None:
-    blob = " ".join(s for s in (comments, permit_type) if s)
-    if not blob:
+def classify(comments: str | None, permit_type: str | None = None) -> str | None:
+    """Classify use_class by comments only — permit_type contains Houston
+    codes that overlap English words and produce false positives.
+    permit_type kept in the signature for backwards compatibility but ignored."""
+    if not comments:
         return None
     for label, regex in RULES:
-        if regex.search(blob):
+        if regex.search(comments):
             return label
     return None
 
