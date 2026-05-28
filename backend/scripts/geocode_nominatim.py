@@ -128,6 +128,7 @@ def main():
     pending: dict[int, tuple[float, float]] = {}
     total_matched = 0
     t0 = time.time()
+    flush_n = 50  # flush often so progress is visible early
     with httpx.Client(headers={"User-Agent": USER_AGENT}) as client:
         for i, (pid, addr, zip_code) in enumerate(targets, 1):
             latlng = query_nominatim(client, addr, zip_code)
@@ -142,8 +143,8 @@ def main():
                 hit_pct = 100 * seen_matches / i
                 print(f"  {i:,}/{len(targets):,}  matches={seen_matches:,} ({hit_pct:.1f}%)  "
                       f"eta {eta_m:.1f}m", flush=True)
-            # Flush periodically so a kill doesn't lose progress.
-            if i % 200 == 0 and pending:
+            # Flush often so DB progress is visible and a kill doesn't lose much.
+            if i % flush_n == 0 and pending:
                 total_matched += write_back(pending)
                 pending.clear()
 
