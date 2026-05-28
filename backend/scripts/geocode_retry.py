@@ -1,5 +1,10 @@
 """Layer 1 of the 99%-geocode push: clean ungeocoded addresses and retry Census.
 
+Important: Census silently throttles aggressive callers (returns 200s with
+zero matches). We pace requests at >=2s between batches to stay under their
+radar. Without this, batches start returning empty after ~50 requests and
+geocode_batch's retry loop just wastes time backing off.
+
 Failure modes the existing geocode_permits pass leaves on the table:
   - Unit / apt / suite / building numbers tacked onto the end of the street
     address ("1001 E MEMORIAL LOOP DR 24", "300 E LITTLE YORK RD BLD 6")
@@ -19,6 +24,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -72,13 +78,15 @@ def clean_variants(addr: str) -> list[str]:
     base = addr.strip()
     variants: list[str] = []
 
-    # If it doesn't even look like an address, bail.
-    if not ADDRESS_LIKELY_RE.search(base):
+    # Skip obvious non-addresses: must start with a digit followed by something
+    # word-ish, otherwise it's a utility description or freeform comment.
+    if not re.match(r"^\d+\s+\S", base):
         return []
 
-    # Variant 0: as-is (already tried in main geocode pass, but Census is flaky
-    # so a second try sometimes succeeds — included only if the row truly came
-    # in untouched by us)
+    # Variant 0: as-is. Even if it didn't match earlier passes, Census can be
+    # flaky and a clean retry sometimes hits — and for "AVENUE K" / "EAST FWY"
+    # style Houston addresses that don't end in a canonical street type, the
+    # un-modified form is our best shot.
     variants.append(base)
 
     # Variant 1: strip explicit unit/suite marker
@@ -158,6 +166,8 @@ def main():
                    help="Max rows to attempt this run")
     p.add_argument("--batch-size", type=int, default=100,
                    help="Census likes 100/batch")
+    p.add_argument("--delay", type=float, default=2.5,
+                   help="Seconds between batches (default 2.5; Census throttles below ~2s)")
     args = p.parse_args()
 
     targets = fetch_targets(args.limit)
@@ -195,16 +205,23 @@ def main():
     n_batches = (total + args.batch_size - 1) // args.batch_size
     for bi, i in enumerate(range(0, total, args.batch_size), 1):
         batch = attempts[i:i + args.batch_size]
-        result = geocode_batch(batch)
+        # max_attempts=2 here because we don't want to spend 75s backing off
+        # on a single low-match batch — the inter-batch sleep below is the
+        # real throttle defense.
+        result = geocode_batch(batch, max_attempts=2)
+        hits = 0
         for syn, latlng in result.items():
             pid = address_index.get(syn)
             if pid is not None and pid not in pending:
                 pending[pid] = latlng
-        print(f"  batch {bi:>3}/{n_batches}: "
-              f"{total_written + len(pending):,} permits recovered so far", flush=True)
+                hits += 1
+        print(f"  batch {bi:>3}/{n_batches}: +{hits} hits, "
+              f"{total_written + len(pending):,} total so far", flush=True)
         if bi % FLUSH_EVERY == 0 and pending:
             total_written += write_back(pending)
             pending.clear()
+        if bi < n_batches:
+            time.sleep(args.delay)
 
     if pending:
         total_written += write_back(pending)
