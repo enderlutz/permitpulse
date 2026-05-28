@@ -1,0 +1,87 @@
+name: Backfill LEGACY Sold-Permits Dates
+
+# Targets ~13k sold_permits rows with permit_code = 'LEGACY' (from the
+# composite-key migration). These still have bogus permit_date but get
+# skipped by backfill-dates.yml because they lack a real PT code.
+# We probe common PTs against the drill-down until one returns details.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since_id:
+        description: "Start from permits.id > N"
+        required: false
+        default: ""
+      limit:
+        description: "Cap rows processed"
+        required: false
+        default: ""
+      concurrency:
+        description: "Parallel drill-down requests"
+        required: false
+        default: "6"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Pre-run row counts
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -c "
+          from sqlalchemy import text
+          from db import engine
+          with engine.connect() as c:
+              total = c.execute(text(\"SELECT COUNT(*) FROM permits WHERE source='houston_sold_permits' AND permit_code='LEGACY'\")).scalar()
+              print(f'Before run — LEGACY rows: {total}')
+          "
+
+      - name: Run backfill
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          SINCE="${{ github.event.inputs.since_id }}"
+          LIMIT="${{ github.event.inputs.limit }}"
+          CONC="${{ github.event.inputs.concurrency || '6' }}"
+
+          ARGS=(--concurrency "$CONC")
+          if [ -n "$SINCE" ]; then ARGS+=(--since-id "$SINCE"); fi
+          if [ -n "$LIMIT" ]; then ARGS+=(--limit "$LIMIT"); fi
+
+          echo "→ Running: python -m scripts.backfill_legacy_dates ${ARGS[@]}"
+          python -m scripts.backfill_legacy_dates "${ARGS[@]}"
+
+      - name: Post-run row counts
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -c "
+          from sqlalchemy import text
+          from db import engine
+          with engine.connect() as c:
+              still_bad = c.execute(text(\"SELECT COUNT(*) FROM permits WHERE source='houston_sold_permits' AND permit_code='LEGACY' AND permit_date BETWEEN '2026-05-23' AND '2026-05-27'\")).scalar()
+              total = c.execute(text(\"SELECT COUNT(*) FROM permits WHERE source='houston_sold_permits' AND permit_code='LEGACY'\")).scalar()
+              print(f'After run — LEGACY rows still on scrape-day date: {still_bad}/{total}')
+          "
