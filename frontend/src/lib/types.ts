@@ -14,6 +14,7 @@ export interface Permit {
   longitude: number | null;
   source: string | null;
   appraisal_status: "matched" | "pending" | null;
+  use_class_assumed: boolean;
   permit_nature:
     | "new_building"
     | "remodel"

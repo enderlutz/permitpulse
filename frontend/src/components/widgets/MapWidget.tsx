@@ -252,7 +252,23 @@ export function MapWidget() {
                 ))}
             </div>
             <div className="text-muted-foreground">Use</div>
-            <div>{selectedPermit.use_class || "—"}</div>
+            <div>
+              {!selectedPermit.use_class || selectedPermit.use_class === "general" ? (
+                <span className="italic text-muted-foreground">Unknown/Pending/General</span>
+              ) : (
+                <>
+                  {selectedPermit.use_class}
+                  {selectedPermit.use_class_assumed && (
+                    <span
+                      className="ml-0.5 cursor-help text-muted-foreground"
+                      title="Assumed from the permit name — no structured use data yet; refined as data posts"
+                    >
+                      *
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
           </div>
           {selectedPermit.comments && (
             <div className="mt-2 line-clamp-2 border-t border-border pt-2 text-[10px] text-muted-foreground">

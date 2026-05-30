@@ -85,12 +85,21 @@ export function MapLegend({ colorMode, showHeat, showPins }: LegendProps) {
                 </>
               )}
               {colorMode === "useClass" && (
-                <LegendRows
-                  rows={USE_CLASSES.map((u) => ({
-                    label: u[0].toUpperCase() + u.slice(1),
-                    color: useClassColor(u),
-                  }))}
-                />
+                <>
+                  <LegendRows
+                    rows={[...USE_CLASSES, "general"].map((u) => ({
+                      label:
+                        u === "general"
+                          ? "Unknown / Pending / General"
+                          : u[0].toUpperCase() + u.slice(1),
+                      color: useClassColor(u),
+                    }))}
+                  />
+                  <div className="mt-1.5 border-t border-border/60 pt-1.5 text-[9px] leading-snug text-muted-foreground/80">
+                    <span className="text-foreground">*</span> use is assumed from the permit
+                    name (no structured data yet) — refined automatically as new data posts.
+                  </div>
+                </>
               )}
             </div>
           )}

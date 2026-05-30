@@ -67,6 +67,18 @@ class PermitOut(BaseModel):
 
     @computed_field
     @property
+    def use_class_assumed(self) -> bool:
+        """True when use_class is an ASSUMPTION inferred from the project/owner
+        name rather than structured data. County/city feeds have no structured
+        use field, so any use_class on them is a name-based guess (show with an
+        asterisk). City-of-Houston permits classify off a real scope
+        description, so those are treated as confident."""
+        if self.use_class is None:
+            return False
+        return bool(self.source) and self.source not in _COH_SOURCES
+
+    @computed_field
+    @property
     def permit_nature(self) -> Optional[str]:
         """Coarse permit category — 'new_building' / 'remodel' / 'fire' /
         'mep' / 'site_civil' / 'sign' / 'demolition' — so the UI can isolate
