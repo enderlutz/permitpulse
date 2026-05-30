@@ -93,19 +93,18 @@ export function BuilderLeaderboard() {
             return (
               <button
                 key={row.builder}
-                onClick={() => setDetailBuilder(row.builder)}
+                onClick={() => {
+                  // Click a builder → show their permit pins on the map (and
+                  // open the profile). Clicking the already-active builder
+                  // clears the focus. The map reacts to filters.builder.
+                  setDetailBuilder(row.builder);
+                  setFilter("builder", active ? null : row.builder);
+                }}
                 className={cn(
                   "group relative flex items-center justify-between rounded px-2 py-1 text-left text-xs transition-colors hover:bg-secondary/60",
                   active && "bg-secondary"
                 )}
-                title="Click for builder profile · Shift-click to filter dashboard"
-                onAuxClick={(e) => {
-                  // Middle-click or shift-click keeps the old "filter" behavior
-                  if (e.shiftKey) {
-                    e.preventDefault();
-                    setFilter("builder", active ? null : row.builder);
-                  }
-                }}
+                title={active ? "Click to clear this builder's map filter" : "Click to show this builder's permits on the map"}
               >
                 <div
                   className="absolute inset-y-0 left-0 rounded bg-gradient-to-r opacity-15"

@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { useWorkspace } from "@/store/workspace";
 import { recencyColor, builderColor, useClassColor } from "@/lib/colors";
 import { Button } from "@/components/ui/button";
-import { Layers, Flame, MapPin } from "lucide-react";
+import { Layers, Flame, MapPin, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Permit } from "@/lib/types";
 import { MapLegend } from "./MapLegend";
@@ -28,6 +28,7 @@ export function MapWidget() {
   const [detailBuilder, setDetailBuilder] = useState<string | null>(null);
 
   const filters = useWorkspace((s) => s.filters);
+  const setFilter = useWorkspace((s) => s.setFilter);
 
   const { data: permits } = useQuery({
     queryKey: ["permits-map", filters.period, filters.zip, filters.builder, filters.permitType, filters.useClass, filters.years, filters.dateFrom, filters.dateTo],
@@ -66,14 +67,20 @@ export function MapWidget() {
     const group = layerRef.current;
     if (!map || !group || !permits) return;
 
+    // "New builds only" isolates new-construction permits from the ancillary
+    // fire/site/sign/trade sub-permits that share the same project.
+    const shown = filters.newBuildsOnly
+      ? permits.filter((p) => p.permit_nature === "new_building")
+      : permits;
+
     group.clearLayers();
     if (heatRef.current) {
       map.removeLayer(heatRef.current);
       heatRef.current = null;
     }
 
-    if (showHeat && permits.length) {
-      const heatData = permits
+    if (showHeat && shown.length) {
+      const heatData = shown
         .filter((p) => p.latitude && p.longitude)
         .map((p) => [p.latitude!, p.longitude!, 0.6]);
       heatRef.current = (L as any).heatLayer(heatData, {
@@ -86,7 +93,7 @@ export function MapWidget() {
 
     if (showPins) {
       const today = Date.now();
-      for (const p of permits) {
+      for (const p of shown) {
         if (!p.latitude || !p.longitude) continue;
         const daysAgo = p.permit_date ? Math.floor((today - new Date(p.permit_date).getTime()) / 86400000) : 999;
         let color = recencyColor(daysAgo);
@@ -104,7 +111,18 @@ export function MapWidget() {
         marker.addTo(group);
       }
     }
-  }, [permits, colorMode, showHeat, showPins]);
+
+    // When focused on a single builder (e.g. clicked from the leaderboard),
+    // pan/zoom the map to that builder's permits so they're actually visible.
+    if (filters.builder) {
+      const pts = shown
+        .filter((p) => p.latitude && p.longitude)
+        .map((p) => [p.latitude!, p.longitude!] as [number, number]);
+      if (pts.length) {
+        map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 14 });
+      }
+    }
+  }, [permits, colorMode, showHeat, showPins, filters.builder, filters.newBuildsOnly]);
 
   return (
     <div className="relative h-full w-full">
@@ -132,6 +150,16 @@ export function MapWidget() {
               <Flame className="h-3 w-3" />
               <span className="ml-1 text-[11px]">Heat</span>
             </Button>
+            <Button
+              variant={filters.newBuildsOnly ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setFilter("newBuildsOnly", !filters.newBuildsOnly)}
+              className="h-7"
+              title="Show only new-construction permits (hide fire/site/sign/trade sub-permits)"
+            >
+              <Building2 className="h-3 w-3" />
+              <span className="ml-1 text-[11px]">New builds</span>
+            </Button>
           </div>
         </div>
         <div className="rounded-md border border-border bg-popover/90 p-1.5 backdrop-blur">
@@ -155,8 +183,14 @@ export function MapWidget() {
 
       {/* Live count */}
       <div className="absolute bottom-3 left-3 z-[400] rounded-md border border-border bg-popover/90 px-2 py-1.5 text-[11px] backdrop-blur">
-        <span className="num font-medium text-foreground">{permits?.length ?? 0}</span>
-        <span className="ml-1 text-muted-foreground">permits in view</span>
+        <span className="num font-medium text-foreground">
+          {(filters.newBuildsOnly
+            ? permits?.filter((p) => p.permit_nature === "new_building").length
+            : permits?.length) ?? 0}
+        </span>
+        <span className="ml-1 text-muted-foreground">
+          {filters.newBuildsOnly ? "new-build permits in view" : "permits in view"}
+        </span>
       </div>
 
       {/* Legend (bottom-left, above the live count) */}

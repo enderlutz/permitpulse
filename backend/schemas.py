@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from typing import Optional
 from pydantic import BaseModel, computed_field
@@ -7,6 +8,32 @@ from pydantic import BaseModel, computed_field
 # appraisal roll, which lags new construction — so a missing value there
 # means "not appraised yet", not "no data".
 _COH_SOURCES = {"houston_ereport", "houston_sold_permits"}
+
+# Permit-nature classification: distinguish a NEW BUILDING permit from the
+# ancillary trade/site sub-permits that share the same project. Driven off
+# permit_type (county PERMITNAME is descriptive) + comments (COH "Building
+# Pmt" is generic, so the real signal — "NEW ... SHELL BLDG" — is in the
+# project description). Order matters: trades/site checked before the
+# generic building bucket so a "Fire Sprinkler" on a warehouse isn't a build.
+_NATURE_RULES: list[tuple[str, re.Pattern]] = [
+    ("sign",       re.compile(r"\bSIGN(S|AGE)?\b|BILLBOARD", re.I)),
+    ("fire",       re.compile(r"\b(FIRE|SPRINKLER|ALARM|STANDPIPE|FIRE PUMP|FIRE LINE)\b", re.I)),
+    ("site_civil", re.compile(r"\b(DRIVEWAY|PAVING|GRADING|STORM ?WATER|STORM SEWER|DETENTION|UTILITY|WATER LINE|SEWER|RIGHT OF WAY|SITE WORK|CIVIL SITE|IRRIGATION|SEWERAGE|OSSF|CULVERT)\b", re.I)),
+    ("mep",        re.compile(r"\b(ELECTRIC|PLUMB|MECHANICAL|\bHVAC\b|BOILER|GENERATOR|SOLAR|GREASE)\b", re.I)),
+    ("demolition", re.compile(r"\bDEMO(LITION)?\b", re.I)),
+    ("remodel",    re.compile(r"\b(REMODEL|RENOVAT|TENANT|FINISH ?OUT|BUILD.?OUT|ALTERATION|REPAIR|RE-?ROOF|ADDITION)\b", re.I)),
+    ("new_building", re.compile(r"\b(NEW (COMMERCIAL|SHELL|WAREHOUSE|BUILDING|BLDG|STRUCTURE|RESIDEN|HOME)|SHELL (BLDG|BUILDING)|HIGH.?PILE|GROUND ?UP|NEW \d|SF SHELL|TILT.?WALL)\b", re.I)),
+]
+
+
+def classify_permit_nature(permit_type: Optional[str], comments: Optional[str]) -> Optional[str]:
+    text = " ".join(filter(None, [permit_type or "", comments or ""]))
+    if not text.strip():
+        return None
+    for label, rx in _NATURE_RULES:
+        if rx.search(text):
+            return label
+    return None
 
 
 class PermitOut(BaseModel):
@@ -37,6 +64,14 @@ class PermitOut(BaseModel):
         if not self.source or self.source in _COH_SOURCES:
             return None
         return "matched" if self.project_value is not None else "pending"
+
+    @computed_field
+    @property
+    def permit_nature(self) -> Optional[str]:
+        """Coarse permit category — 'new_building' / 'remodel' / 'fire' /
+        'mep' / 'site_civil' / 'sign' / 'demolition' — so the UI can isolate
+        actual new-construction permits from ancillary trade/site sub-permits."""
+        return classify_permit_nature(self.permit_type, self.comments)
 
     class Config:
         from_attributes = True

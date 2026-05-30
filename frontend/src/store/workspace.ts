@@ -23,6 +23,7 @@ export interface FiltersState {
   years: number[] | null;   // null = include all years
   dateFrom: string | null;
   dateTo: string | null;
+  newBuildsOnly: boolean;    // show only new-construction permits (permit_nature==='new_building')
 }
 
 interface WorkspaceState {
@@ -45,6 +46,7 @@ const defaultFilters: FiltersState = {
   years: null,
   dateFrom: null,
   dateTo: null,
+  newBuildsOnly: false,
 };
 
 export const useWorkspace = create<WorkspaceState>()(
@@ -103,6 +105,7 @@ export const useWorkspace = create<WorkspaceState>()(
           permitType: s.filters.permitType,
           useClass: s.filters.useClass,
           years: s.filters.years,
+          newBuildsOnly: s.filters.newBuildsOnly,
           dateFrom: null,
           dateTo: null,
         },
