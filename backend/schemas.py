@@ -1,6 +1,12 @@
 from datetime import date, datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+# Sources that carry their own permit valuation (City of Houston feeds).
+# Anything else is a county/city feed where $ value + owner come from the
+# appraisal roll, which lags new construction — so a missing value there
+# means "not appraised yet", not "no data".
+_COH_SOURCES = {"houston_ereport", "houston_sold_permits"}
 
 
 class PermitOut(BaseModel):
@@ -20,6 +26,17 @@ class PermitOut(BaseModel):
     use_class: Optional[str]
     latitude: Optional[float]
     longitude: Optional[float]
+    source: Optional[str] = None
+
+    @computed_field
+    @property
+    def appraisal_status(self) -> Optional[str]:
+        """For county/city-sourced permits: 'matched' once appraisal data is
+        attached, else 'pending' (new build not on the appraisal roll yet).
+        None for City-of-Houston permits, which carry their own valuation."""
+        if not self.source or self.source in _COH_SOURCES:
+            return None
+        return "matched" if self.project_value is not None else "pending"
 
     class Config:
         from_attributes = True

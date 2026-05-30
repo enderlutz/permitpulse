@@ -12,6 +12,8 @@ export interface Permit {
   use_class: string | null;
   latitude: number | null;
   longitude: number | null;
+  source: string | null;
+  appraisal_status: "matched" | "pending" | null;
 }
 
 export interface HotspotZip {

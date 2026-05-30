@@ -202,12 +202,21 @@ export function MapWidget() {
                 >
                   {selectedPermit.builder}
                 </button>
+              ) : selectedPermit.appraisal_status === "pending" ? (
+                <span className="italic text-muted-foreground">Appraisal pending</span>
               ) : (
                 "—"
               )}
             </div>
             <div className="text-muted-foreground">Sq ft</div>
-            <div className="num">{selectedPermit.square_feet?.toLocaleString() || "—"}</div>
+            <div className="num">
+              {selectedPermit.square_feet?.toLocaleString() ??
+                (selectedPermit.appraisal_status === "pending" ? (
+                  <span className="italic text-muted-foreground">Appraisal pending</span>
+                ) : (
+                  "—"
+                ))}
+            </div>
             <div className="text-muted-foreground">Use</div>
             <div>{selectedPermit.use_class || "—"}</div>
           </div>
