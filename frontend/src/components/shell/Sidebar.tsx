@@ -6,6 +6,7 @@ import {
   Building2,
   Lightbulb,
   ListChecks,
+  CalendarClock,
   Bookmark,
   Settings,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const NAV: NavItem[] = [
   { to: "/submarkets", icon: Building2, label: "Submarkets" },
   { to: "/opportunities", icon: Lightbulb, label: "Opportunities" },
   { to: "/permits", icon: ListChecks, label: "Permits" },
+  { to: "/daily-report", icon: CalendarClock, label: "Daily Report" },
   { to: "/watchlist", icon: Bookmark, label: "Watchlist" },
 ];
 

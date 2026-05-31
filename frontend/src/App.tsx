@@ -6,6 +6,7 @@ import { BuildersPage } from "@/pages/BuildersPage";
 import { SubmarketsPage } from "@/pages/SubmarketsPage";
 import { OpportunitiesPage } from "@/pages/OpportunitiesPage";
 import { PermitsPage } from "@/pages/PermitsPage";
+import { DailyReportPage } from "@/pages/DailyReportPage";
 import { WatchlistPage } from "@/pages/WatchlistPage";
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/submarkets" element={<SubmarketsPage />} />
         <Route path="/opportunities" element={<OpportunitiesPage />} />
         <Route path="/permits" element={<PermitsPage />} />
+        <Route path="/daily-report" element={<DailyReportPage />} />
         <Route path="/watchlist" element={<WatchlistPage />} />
       </Route>
     </Routes>

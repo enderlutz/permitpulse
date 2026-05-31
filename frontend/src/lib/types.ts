@@ -18,12 +18,33 @@ export interface Permit {
   permit_nature:
     | "new_building"
     | "remodel"
+    | "building"
     | "fire"
     | "mep"
     | "site_civil"
     | "sign"
     | "demolition"
     | null;
+}
+
+export interface IngestReportRow {
+  id: number;
+  source: string | null;
+  permit_date: string | null;
+  ingested_at: string | null;
+  permit_type: string | null;
+  use_class: string | null;
+  address: string | null;
+  zip_code: string | null;
+  builder: string | null;
+}
+
+export interface IngestReport {
+  window_days: number;
+  latest_ingest: string | null;
+  totals: Record<string, number>;
+  days: { date: string; total: number; sources: Record<string, number> }[];
+  recent: IngestReportRow[];
 }
 
 export interface HotspotZip {

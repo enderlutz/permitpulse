@@ -167,6 +167,76 @@ def permits_meta(response: Response, db: Session = Depends(get_db)):
     }
 
 
+# Friendly source labels for the Daily Report (the two Houston feeds are one source).
+_SOURCE_LABELS = {
+    "houston_sold_permits": "City of Houston",
+    "houston_ereport": "City of Houston",
+    "harris_county": "Harris County",
+}
+
+
+@router.get("/ingest-report")
+def ingest_report(
+    response: Response,
+    days: int = Query(14, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    """New permits pulled per day, per source — keyed on ingested_at (set when
+    we scrape; re-pulls of existing permits are skipped, so this is genuinely
+    NEW rows). Powers the Daily Report page so the client can watch fresh data
+    arrive from City of Houston + Harris County."""
+    from datetime import datetime, timezone
+    response.headers["Cache-Control"] = "public, max-age=300"
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    day = func.date(Permit.ingested_at)
+
+    rows = (
+        db.query(day.label("day"), Permit.source, func.count(Permit.id).label("n"))
+        .filter(Permit.ingested_at >= cutoff)
+        .group_by(day, Permit.source)
+        .all()
+    )
+    by_day: dict[str, dict] = {}
+    totals: dict[str, int] = {}
+    for r in rows:
+        d = r.day.isoformat() if hasattr(r.day, "isoformat") else str(r.day)
+        label = _SOURCE_LABELS.get(r.source, r.source or "unknown")
+        entry = by_day.setdefault(d, {"date": d, "total": 0, "sources": {}})
+        entry["sources"][label] = entry["sources"].get(label, 0) + r.n
+        entry["total"] += r.n
+        totals[label] = totals.get(label, 0) + r.n
+    days_list = sorted(by_day.values(), key=lambda x: x["date"], reverse=True)
+
+    recent = (
+        db.query(Permit)
+        .filter(Permit.ingested_at >= cutoff)
+        .order_by(Permit.ingested_at.desc(), Permit.id.desc())
+        .limit(150)
+        .all()
+    )
+    latest_ingest = db.query(func.max(Permit.ingested_at)).scalar()
+    return {
+        "window_days": days,
+        "latest_ingest": latest_ingest.isoformat() if latest_ingest else None,
+        "totals": totals,
+        "days": days_list,
+        "recent": [
+            {
+                "id": p.id,
+                "source": _SOURCE_LABELS.get(p.source, p.source),
+                "permit_date": p.permit_date.isoformat() if p.permit_date else None,
+                "ingested_at": p.ingested_at.isoformat() if p.ingested_at else None,
+                "permit_type": p.permit_type,
+                "use_class": p.use_class,
+                "address": p.address,
+                "zip_code": p.zip_code,
+                "builder": p.builder,
+            }
+            for p in recent
+        ],
+    }
+
+
 @router.get("/{permit_id}", response_model=PermitOut)
 def get_permit(permit_id: int, db: Session = Depends(get_db)):
     p = db.get(Permit, permit_id)

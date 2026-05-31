@@ -1,5 +1,6 @@
 import type {
   Permit,
+  IngestReport,
   HotspotZip,
   BuilderRow,
   KpiSummary,
@@ -66,6 +67,7 @@ export const api = {
       total: number;
       geocoded: number;
     }>(`/permits/meta`),
+    ingestReport: (days = 14) => fetchJSON<IngestReport>(`/permits/ingest-report?days=${days}`),
   },
   analytics: {
     kpis: (period = "30d") => fetchJSON<KpiSummary>(`/analytics/kpis?period=${period}`),
