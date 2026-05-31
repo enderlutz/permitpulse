@@ -22,6 +22,7 @@ class Permit(Base):
     project_value = Column(Float, nullable=True)
     square_feet = Column(Integer, nullable=True)
     use_class = Column(String, nullable=True)  # residential/commercial/warehouse/retail
+    permit_nature = Column(String, index=True, nullable=True)  # new_building/remodel/building/fire/mep/site_civil/sign/demolition
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     source = Column(String, default="houston_ereport")

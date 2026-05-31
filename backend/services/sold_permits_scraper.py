@@ -518,14 +518,18 @@ def to_permit_row(scraped: dict, detail: Optional[dict] = None) -> dict:
     if detail and detail.get("project_value") is not None:
         project_value = detail["project_value"]
 
+    from schemas import classify_permit_nature
+    permit_type = (scraped.get("PERMIT_DESC") or "").strip() or None
+    comments = (scraped.get("PROJECT_DESC") or "").strip() or None
     return {
         "project_no": pn,
         "permit_code": permit_code,
         "permit_date": permit_date,
-        "permit_type": (scraped.get("PERMIT_DESC") or "").strip() or None,
+        "permit_type": permit_type,
+        "permit_nature": classify_permit_nature(permit_type, comments),
         "address": address or None,
         "zip_code": zip_code,
-        "comments": (scraped.get("PROJECT_DESC") or "").strip() or None,
+        "comments": comments,
         "builder": (scraped.get("OWNER_OCCUPANT") or "").strip() or None,
         "project_value": project_value,
         "source": "houston_sold_permits",

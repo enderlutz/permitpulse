@@ -33,6 +33,7 @@ from scripts.scrape_harris_permits import (  # noqa: E402
     LAYER, OUT_FIELDS, PAGE, epoch_ms_to_date, ZIP_RE, upsert_rows,
 )
 from scripts.classify_use_class import classify  # noqa: E402
+from schemas import classify_permit_nature  # noqa: E402
 
 EPERMITS = "https://www.gis.hctx.net/arcgishcpid/rest/services/Permits/ePermits/MapServer/0/query"
 SOURCE = "harris_county"
@@ -86,11 +87,13 @@ def to_row(attrs: dict, geom: dict | None, owner_map: dict[str, str]) -> dict | 
         lon, lat = geom.get("x"), geom.get("y")
     # Best-effort use class from the name; 'general' when the name isn't telling.
     use_class = classify(project_name) or "general"
+    permit_type = (attrs.get("PERMITNAME") or attrs.get("APPTYPE") or "").strip() or None
     return {
         "project_no": pn,
         "permit_code": permit_code,
         "permit_date": epoch_ms_to_date(attrs.get("ISSUEDDATE")),
-        "permit_type": (attrs.get("PERMITNAME") or attrs.get("APPTYPE") or "").strip() or None,
+        "permit_type": permit_type,
+        "permit_nature": classify_permit_nature(permit_type, project_name),
         "address": address or None,
         "zip_code": zip_code,
         "comments": project_name,

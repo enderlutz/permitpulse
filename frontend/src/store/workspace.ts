@@ -19,6 +19,7 @@ export interface FiltersState {
   zip: string | null;
   builder: string | null;
   permitType: string | null;
+  nature: string | null;       // cross-source permit nature: building/new_building/fire/site_civil/sign
   useClass: string | null;
   years: number[] | null;   // null = include all years
   dateFrom: string | null;
@@ -42,6 +43,7 @@ const defaultFilters: FiltersState = {
   zip: null,
   builder: null,
   permitType: null,
+  nature: null,
   useClass: null,
   years: null,
   dateFrom: null,
@@ -103,6 +105,7 @@ export const useWorkspace = create<WorkspaceState>()(
           zip: s.filters.zip,
           builder: s.filters.builder,
           permitType: s.filters.permitType,
+          nature: s.filters.nature,
           useClass: s.filters.useClass,
           years: s.filters.years,
           newBuildsOnly: s.filters.newBuildsOnly,

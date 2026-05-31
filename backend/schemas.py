@@ -23,7 +23,15 @@ _NATURE_RULES: list[tuple[str, re.Pattern]] = [
     ("demolition", re.compile(r"\bDEMO(LITION)?\b", re.I)),
     ("remodel",    re.compile(r"\b(REMODEL|RENOVAT|TENANT|FINISH ?OUT|BUILD.?OUT|ALTERATION|REPAIR|RE-?ROOF|ADDITION)\b", re.I)),
     ("new_building", re.compile(r"\b(NEW (COMMERCIAL|SHELL|WAREHOUSE|BUILDING|BLDG|STRUCTURE|RESIDEN|HOME)|SHELL (BLDG|BUILDING)|HIGH.?PILE|GROUND ?UP|NEW \d|SF SHELL|TILT.?WALL)\b", re.I)),
+    # Generic building permit — catches City-of-Houston "Building Pmt" and other
+    # building/structure permits that don't carry a clear new-vs-remodel signal.
+    # Last rule so the specific buckets above win first.
+    ("building",   re.compile(r"\b(BUILDING PMT|BLDG PMT|OCC.?BLDG|MDI STRUCTURE|COMMERCIAL BUILDING|BUILDING PERMIT|NEW BLDG)\b", re.I)),
 ]
+
+# permit_nature values that count as "building/structure work" (vs trade/site/
+# sign permits) — used by the cross-source "Building" filter.
+BUILDING_NATURES = ("new_building", "remodel", "building")
 
 
 def classify_permit_nature(permit_type: Optional[str], comments: Optional[str]) -> Optional[str]:
@@ -54,6 +62,7 @@ class PermitOut(BaseModel):
     latitude: Optional[float]
     longitude: Optional[float]
     source: Optional[str] = None
+    permit_nature: Optional[str] = None  # stored: new_building/remodel/building/fire/mep/site_civil/sign/demolition
 
     @computed_field
     @property
@@ -76,14 +85,6 @@ class PermitOut(BaseModel):
         if self.use_class is None:
             return False
         return bool(self.source) and self.source not in _COH_SOURCES
-
-    @computed_field
-    @property
-    def permit_nature(self) -> Optional[str]:
-        """Coarse permit category — 'new_building' / 'remodel' / 'fire' /
-        'mep' / 'site_civil' / 'sign' / 'demolition' — so the UI can isolate
-        actual new-construction permits from ancillary trade/site sub-permits."""
-        return classify_permit_nature(self.permit_type, self.comments)
 
     class Config:
         from_attributes = True

@@ -50,7 +50,7 @@ export function Topbar() {
   const activeYears = filters.years;
   const yearsActive = activeYears != null && activeYears.length > 0;
   const activeCount =
-    [filters.zip, filters.builder, filters.permitType, filters.useClass].filter(Boolean).length +
+    [filters.zip, filters.builder, filters.permitType, filters.nature, filters.useClass].filter(Boolean).length +
     (yearsActive ? 1 : 0);
 
   const applySearch = () => {
@@ -195,22 +195,31 @@ export function Topbar() {
             <SelectItem value="restaurant">Restaurant</SelectItem>
             <SelectItem value="apartment">Apartment</SelectItem>
             <SelectItem value="residential">Residential</SelectItem>
+            <SelectItem value="clinic">Medical / Clinic</SelectItem>
+            <SelectItem value="school">School</SelectItem>
+            <SelectItem value="church">Church</SelectItem>
+            <SelectItem value="hotel">Hotel</SelectItem>
+            <SelectItem value="general">Unknown / Pending / General</SelectItem>
           </SelectContent>
         </Select>
 
         <Select
-          value={filters.permitType ?? "__all__"}
-          onValueChange={(v) => setFilter("permitType", v === "__all__" ? null : v)}
+          value={filters.nature ?? "__all__"}
+          onValueChange={(v) => setFilter("nature", v === "__all__" ? null : v)}
         >
           <SelectTrigger className="w-36">
             <SelectValue placeholder="All permits" />
           </SelectTrigger>
           <SelectContent>
+            {/* Cross-source: matches both City-of-Houston and Harris County
+                permit vocabularies via the permit_nature field. */}
             <SelectItem value="__all__">All permits</SelectItem>
-            <SelectItem value="Building Pmt">Building</SelectItem>
-            <SelectItem value="OCC-BLDG PMT">Cert. of Occupancy</SelectItem>
-            <SelectItem value="Demolition">Demolition</SelectItem>
-            <SelectItem value="MDI Structure">MDI Structural</SelectItem>
+            <SelectItem value="building">Building (all)</SelectItem>
+            <SelectItem value="new_building">New construction</SelectItem>
+            <SelectItem value="remodel">Remodel / Tenant</SelectItem>
+            <SelectItem value="fire">Fire</SelectItem>
+            <SelectItem value="site_civil">Site / Civil</SelectItem>
+            <SelectItem value="sign">Sign</SelectItem>
           </SelectContent>
         </Select>
 

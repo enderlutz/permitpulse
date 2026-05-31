@@ -31,7 +31,7 @@ export function MapWidget() {
   const setFilter = useWorkspace((s) => s.setFilter);
 
   const { data: permits } = useQuery({
-    queryKey: ["permits-map", filters.period, filters.zip, filters.builder, filters.permitType, filters.useClass, filters.years, filters.dateFrom, filters.dateTo],
+    queryKey: ["permits-map", filters.period, filters.zip, filters.builder, filters.permitType, filters.nature, filters.useClass, filters.years, filters.dateFrom, filters.dateTo],
     queryFn: () =>
       api.permits.list({
         period: filters.dateFrom ? undefined : filters.period,
@@ -40,6 +40,7 @@ export function MapWidget() {
         zip: filters.zip,
         builder: filters.builder,
         permit_type: filters.permitType,
+        nature: filters.nature,
         use_class: filters.useClass,
         years: filters.years?.join(",") || undefined,
         has_geo: true,

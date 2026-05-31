@@ -36,6 +36,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert  # noqa: E402
 from db import engine, Base  # noqa: E402
 from models import Permit  # noqa: E402
 from scripts.classify_use_class import classify  # noqa: E402
+from schemas import classify_permit_nature  # noqa: E402
 
 LAYER = (
     "https://www.gis.hctx.net/arcgishcpid/rest/services/Permits/"
@@ -95,11 +96,13 @@ def to_harris_row(attrs: dict, geom: dict | None) -> dict | None:
     if geom:
         lon, lat = geom.get("x"), geom.get("y")  # outSR=4326 → x=lon, y=lat
 
+    permit_type = (attrs.get("PERMITNAME") or attrs.get("APPTYPE") or "").strip() or None
     return {
         "project_no": pn,
         "permit_code": permit_code,
         "permit_date": epoch_ms_to_date(attrs.get("ISSUEDDATE")),
-        "permit_type": (attrs.get("PERMITNAME") or attrs.get("APPTYPE") or "").strip() or None,
+        "permit_type": permit_type,
+        "permit_nature": classify_permit_nature(permit_type, project_name),
         "address": address or None,
         "zip_code": zip_code,
         "comments": project_name,  # no real description in this source; PROJECTNAME is the best hint

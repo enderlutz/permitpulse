@@ -6,7 +6,7 @@ from sqlalchemy import and_, or_, func, cast, Integer
 
 from db import get_db
 from models import Permit
-from schemas import PermitOut
+from schemas import PermitOut, BUILDING_NATURES
 
 router = APIRouter()
 CACHE = "public, max-age=600, stale-while-revalidate=3600"
@@ -43,6 +43,7 @@ def list_permits(
     db: Session = Depends(get_db),
     zip_code: Optional[str] = Query(None, alias="zip"),
     permit_type: Optional[str] = Query(None),
+    nature: Optional[str] = Query(None, description="Cross-source permit nature: building (macro) / new_building / remodel / fire / mep / site_civil / sign / demolition"),
     use_class: Optional[str] = Query(None, description="warehouse/retail/office/restaurant/apartment/residential"),
     builder: Optional[str] = Query(None),
     period: Optional[str] = Query(None, description="7d/30d/90d/12mo — anchored on latest permit date"),
@@ -61,6 +62,13 @@ def list_permits(
         q = q.filter(Permit.zip_code == zip_code)
     if permit_type:
         q = q.filter(Permit.permit_type == permit_type)
+    if nature:
+        # "building" is a macro covering all structure/building permits across
+        # sources (new + remodel + generic); others match the bucket directly.
+        if nature == "building":
+            q = q.filter(Permit.permit_nature.in_(BUILDING_NATURES))
+        else:
+            q = q.filter(Permit.permit_nature == nature)
     if use_class:
         q = q.filter(Permit.use_class == use_class)
     if builder:
