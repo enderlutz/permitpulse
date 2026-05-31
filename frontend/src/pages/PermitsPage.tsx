@@ -20,7 +20,7 @@ export function PermitsPage() {
         period: filters.period,
         zip: filters.zip,
         builder: filters.builder,
-        permit_type: filters.permitType,
+        nature: filters.nature,
         use_class: filters.useClass,
         years: filters.years?.join(",") || undefined,
         limit,
